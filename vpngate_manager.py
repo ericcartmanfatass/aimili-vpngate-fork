@@ -110,6 +110,10 @@ CHECK_INTERVAL_SECONDS = env_int("CHECK_INTERVAL_SECONDS", 1260, 1)
 TARGET_VALID_NODES = env_int("TARGET_VALID_NODES", 3, 1)
 MAX_SCAN_ROWS = env_int("MAX_SCAN_ROWS", 300, 1)
 OPENVPN_TEST_TIMEOUT_SECONDS = env_int("OPENVPN_TEST_TIMEOUT_SECONDS", 35, 1)
+OPENVPN_MAINTENANCE_TEST_TIMEOUT_SECONDS = env_int("OPENVPN_MAINTENANCE_TEST_TIMEOUT_SECONDS", 8, 3)
+NODE_TEST_WORKERS = env_int("NODE_TEST_WORKERS", 2, 1, 10)
+MAX_MAINTENANCE_TEST_NODES = env_int("MAX_MAINTENANCE_TEST_NODES", max(18, TARGET_VALID_NODES * 6), 1)
+NODE_RETEST_INTERVAL_SECONDS = env_int("NODE_RETEST_INTERVAL_SECONDS", 6 * 3600, 60)
 OPENVPN_CMD = os.environ.get("OPENVPN_CMD", "openvpn")
 OPENVPN_AUTH_USER = os.environ.get("OPENVPN_AUTH_USER", "vpn")
 OPENVPN_AUTH_PASS = os.environ.get("OPENVPN_AUTH_PASS", "vpn")
@@ -118,6 +122,16 @@ LOCAL_PROXY_PORT = env_int("LOCAL_PROXY_PORT", 7928, 1, 65535)
 UI_HOST = os.environ.get("UI_HOST", "::")
 UI_PORT = env_int("UI_PORT", 8787, 1, 65535)
 INVALID_BACKOFF_SECONDS = env_int("INVALID_BACKOFF_SECONDS", 30 * 60, 1)
+INSTANCE_ID = os.environ.get("INSTANCE_ID", "default").strip().lower() or "default"
+TUN_DEV = os.environ.get("TUN_DEV", "tun0").strip() or "tun0"
+POLICY_TABLE = os.environ.get("POLICY_TABLE", "100").strip() or "100"
+_allowed_countries_raw = os.environ.get("ALLOWED_COUNTRIES", "").strip().upper()
+ALLOWED_COUNTRIES: set[str] = {
+    item.strip()
+    for item in _allowed_countries_raw.split(",")
+    if item.strip()
+}
+EXCLUDE_DATACENTER = os.environ.get("EXCLUDE_DATACENTER", "0").strip().lower() in ("1", "true", "yes", "on")
 
 ROOT_DIR = Path(sys.executable).resolve().parent if globals().get("__compiled__") else Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ["VPNGATE_DATA_DIR"]).resolve() if os.environ.get("VPNGATE_DATA_DIR") else ROOT_DIR / "vpngate_data"
@@ -347,6 +361,15 @@ def read_nodes() -> list[dict[str, Any]]:
         return []
     return [item for item in raw if isinstance(item, dict)]
 
+def node_matches_allowed_countries(node: dict[str, Any]) -> bool:
+    if not ALLOWED_COUNTRIES:
+        return True
+    country_short = str(node.get("country_short") or "").strip().upper()
+    if country_short in ALLOWED_COUNTRIES:
+        return True
+    node_id = str(node.get("id") or "").strip().upper()
+    return any(node_id.startswith(f"{country}_") for country in ALLOWED_COUNTRIES)
+
 def get_state() -> dict[str, Any]:
     global active_openvpn_node_id, is_connecting
     state = read_json(STATE_FILE, {})
@@ -354,6 +377,10 @@ def get_state() -> dict[str, Any]:
     state["active_openvpn_node_id"] = active_openvpn_node_id
     state["is_connecting"] = is_connecting
     state.setdefault("api_url", API_URL)
+    state["instance_id"] = INSTANCE_ID
+    state["tun_dev"] = TUN_DEV
+    state["policy_table"] = POLICY_TABLE
+    state["allowed_countries"] = sorted(ALLOWED_COUNTRIES)
     state.setdefault("target_valid_nodes", TARGET_VALID_NODES)
     state.setdefault("fetch_interval_seconds", FETCH_INTERVAL_SECONDS)
     state.setdefault("check_interval_seconds", CHECK_INTERVAL_SECONDS)
@@ -769,6 +796,10 @@ def fetch_candidates() -> list[dict[str, Any]]:
                     ip = row.get("IP", "")
                     if not ip or ip in seen_ips:
                         continue
+                    if ALLOWED_COUNTRIES:
+                        country_short = (row.get("CountryShort") or "").strip().upper()
+                        if country_short not in ALLOWED_COUNTRIES:
+                            continue
                     encoded = row.get("OpenVPN_ConfigData_Base64", "")
                     if not encoded:
                         continue
@@ -844,7 +875,7 @@ def get_openvpn_version() -> float:
     _openvpn_version = 2.4
     return _openvpn_version
 
-def openvpn_command(config_file: str, route_nopull: bool, dev: str = "tun0") -> list[str]:
+def openvpn_command(config_file: str, route_nopull: bool, dev: str = TUN_DEV) -> list[str]:
     command = split_openvpn_command()
     command.extend(
         [
@@ -987,7 +1018,7 @@ def update_handshake_status(line_lower: str) -> None:
             set_state(active_node_latency=short_status, last_check_message=detailed_desc)
             break
 
-def run_openvpn_until_ready(config_file: str, keep_alive: bool, route_nopull: bool, timeout: int | None = None, dev: str = "tun0") -> tuple[bool, str, subprocess.Popen[str] | None]:
+def run_openvpn_until_ready(config_file: str, keep_alive: bool, route_nopull: bool, timeout: int | None = None, dev: str = TUN_DEV) -> tuple[bool, str, subprocess.Popen[str] | None]:
     limit = timeout if timeout is not None else OPENVPN_TEST_TIMEOUT_SECONDS
     try:
         process = subprocess.Popen(
@@ -1083,28 +1114,28 @@ def run_openvpn_until_ready(config_file: str, keep_alive: bool, route_nopull: bo
     return ok, message, process
 
 
-def setup_policy_routing(interface: str = "tun0") -> None:
+def setup_policy_routing(interface: str = TUN_DEV, table: str = POLICY_TABLE) -> None:
     try:
-        subprocess.run(["ip", "rule", "del", "table", "100"], capture_output=True, timeout=2)
+        subprocess.run(["ip", "rule", "del", "table", table], capture_output=True, timeout=2)
     except Exception:
         pass
     try:
-        subprocess.run(["ip", "route", "flush", "table", "100"], capture_output=True, timeout=2)
+        subprocess.run(["ip", "route", "flush", "table", table], capture_output=True, timeout=2)
     except Exception:
         pass
     
     success = False
     for attempt in range(1, 4):
         try:
-            subprocess.run(["ip", "route", "add", "default", "dev", interface, "table", "100"], check=True, timeout=2)
-            subprocess.run(["ip", "rule", "add", "oif", interface, "table", "100"], check=True, timeout=2)
+            subprocess.run(["ip", "route", "add", "default", "dev", interface, "table", table], check=True, timeout=2)
+            subprocess.run(["ip", "rule", "add", "oif", interface, "table", table], check=True, timeout=2)
             # 配置反向路径过滤 rp_filter 为 loose 模式 (2)，防止回包被内核静默丢弃
             for proc_path in ["all", "default", interface]:
                 try:
                     subprocess.run(["sysctl", "-w", f"net.ipv4.conf.{proc_path}.rp_filter=2"], capture_output=True, timeout=2)
                 except Exception:
                     pass
-            print(f"[policy_routing] Enabled policy routing for interface {interface} (attempt {attempt} success)", flush=True)
+            print(f"[policy_routing] Enabled policy routing for interface {interface} table {table} (attempt {attempt} success)", flush=True)
             success = True
             break
         except Exception as e:
@@ -1115,11 +1146,11 @@ def setup_policy_routing(interface: str = "tun0") -> None:
         print("[路由配置失败] [错误代码 3003] [ERR_ROUTE_TABLE_ADD_FAILED] 策略路由配置失败。原因: 无法向路由表 100 添加默认路由，这可能会导致通过 VPN 接口的出站路由无法正常解析。请检查系统是否支持策略路由、iproute2 工具是否完整，以及是否具有 root 权限。", flush=True)
         log_to_json("ERROR", "Routing", "[错误代码 3003] [ERR_ROUTE_TABLE_ADD_FAILED] 策略路由配置失败。原因: 无法向路由表 100 添加默认路由")
 
-def cleanup_policy_routing() -> None:
+def cleanup_policy_routing(table: str = POLICY_TABLE) -> None:
     try:
-        subprocess.run(["ip", "rule", "del", "table", "100"], capture_output=True, timeout=2)
-        subprocess.run(["ip", "route", "flush", "table", "100"], capture_output=True, timeout=2)
-        print("[policy_routing] Cleared policy routing table 100", flush=True)
+        subprocess.run(["ip", "rule", "del", "table", table], capture_output=True, timeout=2)
+        subprocess.run(["ip", "route", "flush", "table", table], capture_output=True, timeout=2)
+        print(f"[policy_routing] Cleared policy routing table {table}", flush=True)
     except Exception:
         pass
 
@@ -1194,6 +1225,8 @@ def test_node_by_id(node_id: str) -> dict[str, Any]:
         node = next((item for item in nodes if item.get("id") == node_id), None)
         if not node:
             raise ValueError(f"Node not found: {node_id}")
+        if not node_matches_allowed_countries(node):
+            raise ValueError(f"Node {node_id} is outside this instance allowed countries: {sorted(ALLOWED_COUNTRIES)}")
         config_text = node.get("config_text") or ""
         h = str(node.get("remote_host") or node.get("ip"))
         p = parse_int(node.get("remote_port"))
@@ -1259,10 +1292,14 @@ def test_node_by_id(node_id: str) -> dict[str, Any]:
         else:
             return {}
 
-def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
+def test_multiple_nodes(
+    node_ids: list[str],
+    timeout: int = OPENVPN_MAINTENANCE_TEST_TIMEOUT_SECONDS,
+    max_workers: int = NODE_TEST_WORKERS,
+) -> list[dict[str, Any]]:
     with lock:
         nodes = read_nodes()
-        to_test = [n for n in nodes if n.get("id") in node_ids]
+        to_test = [n for n in nodes if n.get("id") in node_ids and node_matches_allowed_countries(n)]
         
     def test_worker(args: tuple[int, dict[str, Any]]) -> dict[str, Any]:
         idx, n_info = args
@@ -1296,7 +1333,7 @@ def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
         try:
             tun_idx = get_free_test_index()
             dev_name = f"tun{tun_idx}"
-            ok, message, _ = run_openvpn_until_ready(str(temp_path), keep_alive=False, route_nopull=True, timeout=12, dev=dev_name)
+            ok, message, _ = run_openvpn_until_ready(str(temp_path), keep_alive=False, route_nopull=True, timeout=timeout, dev=dev_name)
         finally:
             if tun_idx is not None:
                 release_test_index(tun_idx)
@@ -1325,7 +1362,7 @@ def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
         return temp_node
 
     updated_nodes_map = {}
-    max_workers = min(5, max(1, len(to_test)))
+    max_workers = min(max_workers, max(1, len(to_test)))
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(test_worker, (idx, n)): n["id"] for idx, n in enumerate(to_test)}
         for future in concurrent.futures.as_completed(futures):
@@ -1360,6 +1397,50 @@ def test_multiple_nodes(node_ids: list[str]) -> list[dict[str, Any]]:
         
     return list(updated_nodes_map.values())
 
+
+def select_maintenance_test_nodes(nodes: list[dict[str, Any]]) -> list[str]:
+    now = time.time()
+    candidates = [n for n in nodes if not n.get("active") and node_matches_allowed_countries(n)]
+
+    def probed_at(node: dict[str, Any]) -> float:
+        try:
+            return float(node.get("probed_at") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    untested = [
+        n for n in candidates
+        if n.get("probe_status") in ("", None, "not_checked") or probed_at(n) <= 0
+    ]
+    stale_available = [
+        n for n in candidates
+        if n.get("probe_status") == "available" and now - probed_at(n) >= NODE_RETEST_INTERVAL_SECONDS
+    ]
+    stale_unavailable = [
+        n for n in candidates
+        if n.get("probe_status") == "unavailable" and now - probed_at(n) >= NODE_RETEST_INTERVAL_SECONDS
+    ]
+
+    def priority(node: dict[str, Any]) -> tuple[int, int, float]:
+        return (
+            parse_int(node.get("latency_ms")) or parse_int(node.get("ping")) or 999999,
+            -parse_int(node.get("score")),
+            probed_at(node),
+        )
+
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in (untested, stale_available, stale_unavailable):
+        for node in sorted(group, key=priority):
+            node_id = str(node.get("id") or "")
+            if not node_id or node_id in seen:
+                continue
+            selected.append(node)
+            seen.add(node_id)
+            if len(selected) >= MAX_MAINTENANCE_TEST_NODES:
+                return [n["id"] for n in selected]
+    return [n["id"] for n in selected]
+
 def auto_switch_node(attempt: int = 0) -> None:
     if attempt >= 3:
         print("[自动切换] 连续切换失败已达 3 次，停止切换以防止主线程死锁，将在后台重新加载节点...", flush=True)
@@ -1385,6 +1466,8 @@ def auto_switch_node(attempt: int = 0) -> None:
             n for n in nodes 
             if n.get("probe_status") == "available" 
             and not n.get("active")
+            and node_matches_allowed_countries(n)
+            and (not EXCLUDE_DATACENTER or n.get("quality") != "datacenter")
         ]
         
         if routing_mode == "fixed_region" and target_country:
@@ -1467,6 +1550,8 @@ def connect_node(node_id: str) -> str:
         node = next((item for item in nodes if item.get("id") == node_id), None)
         if not node:
             raise ValueError(f"Node not found: {node_id}")
+        if not node_matches_allowed_countries(node):
+            raise ValueError(f"Node {node_id} is outside this instance allowed countries: {sorted(ALLOWED_COUNTRIES)}")
         
         ui_cfg = load_ui_config()
         ui_cfg["connection_enabled"] = True
@@ -1514,7 +1599,7 @@ def connect_node(node_id: str) -> str:
             active_openvpn_node_id = node_id
         
         set_state(active_node_latency="配置路由", last_check_message="正在配置策略路由规则与流量转发...")
-        setup_policy_routing("tun0")
+        setup_policy_routing(TUN_DEV)
         
         global last_active_ping_time, last_active_latency
         last_active_ping_time = time.time()
@@ -1557,7 +1642,7 @@ def connect_node(node_id: str) -> str:
             
         latency_str = f"{last_active_latency} ms" if last_active_latency > 0 else "检测超时"
         set_state(active_openvpn_node_id=node_id, is_connecting=False, last_check_message=f"Connected {node_id}", active_node_latency=latency_str)
-        log_to_json("INFO", "VPN", f"节点 {node_id} 连接成功，出口网卡 tun0 已启用")
+        log_to_json("INFO", "VPN", f"节点 {node_id} 连接成功，出口网卡 {TUN_DEV} 已启用")
         return f"Connected {node_id}"
     except Exception as exc:
         if stopped_existing or (active_openvpn_node_id == node_id and not active_openvpn_running()):
@@ -1630,6 +1715,8 @@ def maintain_valid_nodes(force: bool = False) -> str:
             if active_openvpn_node_id:
                 current_nodes = read_nodes()
                 active_node = next((n for n in current_nodes if n.get("id") == active_openvpn_node_id), None)
+                if active_node and not node_matches_allowed_countries(active_node):
+                    active_node = None
                 
             merged: list[dict[str, Any]] = []
             seen_ids: set[str] = set()
@@ -1656,26 +1743,28 @@ def maintain_valid_nodes(force: bool = False) -> str:
                         
             write_json(NODES_FILE, merged)
 
-        # Test all non-active nodes from the list
+        # Test a bounded maintenance batch instead of every non-active node.
         with lock:
             current_nodes = read_nodes()
-            to_test = [n for n in current_nodes if not n.get("active")]
-            to_test_ids = [n["id"] for n in to_test]
+            to_test_ids = select_maintenance_test_nodes(current_nodes)
             
-        msg = f"开始对列表中所有候选节点进行周期连通性与延迟测试，待检测节点共 {len(to_test_ids)} 个"
+        msg = f"开始维护测试候选节点，待检测 {len(to_test_ids)} 个（上限 {MAX_MAINTENANCE_TEST_NODES}，并发 {NODE_TEST_WORKERS}）"
         print(f"[周期检测] {msg}", flush=True)
         log_to_json("INFO", "Main", msg)
         
-        set_state(is_connecting=True, last_check_message="正在并发检测所有节点可用性...")
-        test_multiple_nodes(to_test_ids)
+        set_state(is_connecting=True, last_check_message=msg)
+        if to_test_ids:
+            test_multiple_nodes(to_test_ids)
+        else:
+            print("[周期检测] 当前没有需要重测的节点，跳过 OpenVPN 批量测试。", flush=True)
         is_connecting = False
         
         with lock:
             merged = read_nodes()
             
             # Identify available, unavailable, and active nodes
-            available_nodes = [n["id"] for n in merged if n.get("probe_status") == "available"]
-            unavailable_nodes = [n["id"] for n in merged if n.get("probe_status") == "unavailable"]
+            available_nodes = [n["id"] for n in merged if n.get("probe_status") == "available" and node_matches_allowed_countries(n)]
+            unavailable_nodes = [n["id"] for n in merged if n.get("probe_status") == "unavailable" and node_matches_allowed_countries(n)]
             active_node = next((n["id"] for n in merged if n.get("active")), "无")
             
             status_report = (
@@ -1700,7 +1789,10 @@ def maintain_valid_nodes(force: bool = False) -> str:
                     target_country = ui_cfg.get("force_country", "")
                     
                     if routing_mode != "fixed_ip":
-                        available_candidates = [n for n in merged if n.get("probe_status") == "available"]
+                        available_candidates = [
+                            n for n in merged
+                            if n.get("probe_status") == "available" and node_matches_allowed_countries(n)
+                        ]
                         if routing_mode == "fixed_region" and target_country:
                             available_candidates = [
                                 n for n in available_candidates 
@@ -1727,7 +1819,10 @@ def maintain_valid_nodes(force: bool = False) -> str:
                         if available_candidates:
                             auto_switch_node()
 
-        valid_nodes_count = len([n for n in merged if n.get("probe_status") == "available"])
+        valid_nodes_count = len([
+            n for n in merged
+            if n.get("probe_status") == "available" and node_matches_allowed_countries(n)
+        ])
         message = f"Fetched {len(candidates)} nodes. Tested {len(to_test_ids)} non-active nodes."
         set_state(
             last_check_at=time.time(),
@@ -4679,12 +4774,12 @@ def check_proxy_health() -> dict[str, Any]:
             except Exception:
                 pass
 
-    # 2. 检测虚拟网卡 tun0 是否存在 (Linux 下)
-    tun_path = Path("/sys/class/net/tun0")
+    # 2. 检测虚拟网卡是否存在 (Linux 下)
+    tun_path = Path(f"/sys/class/net/{TUN_DEV}")
     if sys.platform.startswith("linux") and not tun_path.exists():
         return {
             "ok": False,
-            "error": "[错误代码 3004] [ERR_ROUTE_DEV_NOT_FOUND] VPN 虚拟网卡 (tun0) 未启用，请确保当前已成功连接 VPN 节点"
+            "error": f"[错误代码 3004] [ERR_ROUTE_DEV_NOT_FOUND] VPN 虚拟网卡 ({TUN_DEV}) 未启用，请确保当前已成功连接 VPN 节点"
         }
 
     # 3. 使用 curl 通过本地 SOCKS5 代理接口测试 IP 与实际延迟
@@ -4860,11 +4955,18 @@ def active_node_pinger() -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def has_console_token(self) -> bool:
+        expected = os.environ.get("INSTANCE_API_TOKEN", "")
+        provided = self.headers.get("X-Aimili-Console-Token", "")
+        return bool(expected) and provided == expected
+
     def get_secret_path(self) -> str:
         ui_cfg = load_ui_config()
         return ui_cfg.get("secret_path", "EJsW2EeBo9lY")
 
     def is_authorized(self) -> bool:
+        if self.has_console_token():
+            return True
         ui_cfg = load_ui_config()
         pwd = ui_cfg.get("password")
         if not pwd:
@@ -4891,8 +4993,10 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def validate_path(self) -> str:
-        secret_path = self.get_secret_path()
         request_path = urllib.parse.urlsplit(self.path).path
+        if self.has_console_token():
+            return request_path
+        secret_path = self.get_secret_path()
         if not secret_path:
             return request_path
         if request_path == f"/{secret_path}":
@@ -5046,8 +5150,8 @@ class Handler(BaseHTTPRequestHandler):
             if ovpn_ok:
                 ovpn_details = f"已连接节点: {active_openvpn_node_id}"
                 if sys.platform.startswith("linux"):
-                    if not Path("/sys/class/net/tun0").exists():
-                        ovpn_err = "[警告] 虚拟网卡 (tun0) 未启用，可能存在策略路由配置问题。"
+                    if not Path(f"/sys/class/net/{TUN_DEV}").exists():
+                        ovpn_err = f"[警告] 虚拟网卡 ({TUN_DEV}) 未启用，可能存在策略路由配置问题。"
             else:
                 if active_openvpn_node_id:
                     ovpn_err = "连接已中断或 OpenVPN 核心程序异常退出。"
@@ -5471,6 +5575,10 @@ def main() -> None:
         STATE_FILE,
         {
             "api_url": API_URL,
+            "instance_id": INSTANCE_ID,
+            "tun_dev": TUN_DEV,
+            "policy_table": POLICY_TABLE,
+            "allowed_countries": sorted(ALLOWED_COUNTRIES),
             "target_valid_nodes": TARGET_VALID_NODES,
             "fetch_interval_seconds": FETCH_INTERVAL_SECONDS,
             "check_interval_seconds": CHECK_INTERVAL_SECONDS,
@@ -5483,7 +5591,7 @@ def main() -> None:
             "blacklisted_nodes": 0,
         },
     )
-    threading.Thread(target=proxy_server.start_proxy_server, args=(LOCAL_PROXY_HOST, LOCAL_PROXY_PORT), daemon=True).start()
+    threading.Thread(target=proxy_server.start_proxy_server, args=(LOCAL_PROXY_HOST, LOCAL_PROXY_PORT, TUN_DEV), daemon=True).start()
     
     # Wait for the gateway to officially start
     print("[网关] 正在启动代理网关...", flush=True)

@@ -82,6 +82,8 @@ fi
 
 # 4. Clone or pull the repository
 INSTALL_DIR="/opt/aimilivpn"
+SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 默认部署分支（在 bate 分支设为 bate；在 main 分支设为 main）
 DEFAULT_DEPLOY_BRANCH="main"
 
@@ -93,7 +95,10 @@ fi
 DEPLOY_BRANCH="${CURRENT_BRANCH:-$DEFAULT_DEPLOY_BRANCH}"
 
 echo -e "\n${YELLOW}[2/4] 正在从 GitHub 部署源代码到 ${INSTALL_DIR} (目标分支: ${DEPLOY_BRANCH})...${PLAIN}"
-if [ -f "${INSTALL_DIR}/.local_dev" ]; then
+if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
+    echo -e "${GREEN}  -> 检测到本地多实例源码，跳过 GitHub 拉取，使用当前目录部署。${PLAIN}"
+    mkdir -p "${INSTALL_DIR}"
+elif [ -f "${INSTALL_DIR}/.local_dev" ]; then
     echo -e "${GREEN}检测到本地开发模式 (.local_dev)，跳过 git pull/reset 保持本地修改。${PLAIN}"
 else
     if [ -d "${INSTALL_DIR}" ]; then
@@ -129,13 +134,48 @@ else
     fi
 fi
 
+if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
+    echo -e "  -> Syncing local multi-instance source files into ${INSTALL_DIR} ..."
+    mkdir -p "${INSTALL_DIR}"
+    for src_file in install.sh proxy_server.py vpngate_manager.py vpn_utils.py console_server.py README.md LICENSE .gitignore .gitattributes; do
+        if [ -f "${SCRIPT_DIR}/${src_file}" ]; then
+            src_path="$(readlink -f "${SCRIPT_DIR}/${src_file}")"
+            dst_path="$(readlink -f "${INSTALL_DIR}/${src_file}" 2>/dev/null || printf '%s/%s' "${INSTALL_DIR}" "${src_file}")"
+            if [ "$src_path" != "$dst_path" ]; then
+                cp "${SCRIPT_DIR}/${src_file}" "${INSTALL_DIR}/${src_file}"
+            fi
+        fi
+    done
+    find "${INSTALL_DIR}" -maxdepth 1 -type f \( -name '*.py' -o -name '*.sh' \) -exec sed -i 's/\r$//' {} \;
+fi
+
 # 5. Configure Service
 echo -e "\n${YELLOW}[3/4] 正在配置系统服务...${PLAIN}"
 if command -v systemctl >/dev/null 2>&1; then
-    echo -e "  -> 检测到 systemd，正在创建服务配置 /lib/systemd/system/aimilivpn.service ..."
-    cat > /lib/systemd/system/aimilivpn.service <<EOF
+    echo -e "  -> Detected systemd, configuring multi-instance backend and single console..."
+    mkdir -p /etc/aimilivpn
+
+    if [ ! -f /etc/aimilivpn/instance_api_token ]; then
+        python3 -c "import secrets; print(secrets.token_urlsafe(32))" > /etc/aimilivpn/instance_api_token
+        chmod 600 /etc/aimilivpn/instance_api_token
+    fi
+    INSTANCE_API_TOKEN="$(cat /etc/aimilivpn/instance_api_token)"
+
+    declare -A TUN_DEV_MAP=( [JP]=tun10 [US]=tun11 [KR]=tun12 )
+    declare -A POLICY_MAP=( [JP]=110 [US]=111 [KR]=112 )
+    declare -A PROXY_PORT_MAP=( [JP]=7928 [US]=7929 [KR]=7930 )
+    declare -A UI_PORT_MAP=( [JP]=18788 [US]=18789 [KR]=18790 )
+    COUNTRIES="${COUNTRIES:-JP,US,KR}"
+
+    if systemctl list-unit-files aimilivpn.service >/dev/null 2>&1; then
+        systemctl disable --now aimilivpn.service >/dev/null 2>&1 || true
+    fi
+
+    mkdir -p "${SYSTEMD_UNIT_DIR}"
+    echo -e "  -> Writing ${SYSTEMD_UNIT_DIR}/aimilivpn@.service ..."
+    cat > "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" <<EOF
 [Unit]
-Description=AimiliVPN OpenVPN Manager with HTTP/SOCKS5 Proxy
+Description=AimiliVPN OpenVPN Manager instance %i
 After=network.target
 
 [Service]
@@ -144,13 +184,109 @@ WorkingDirectory=${INSTALL_DIR}
 ExecStart=/usr/bin/python3 vpngate_manager.py
 Restart=always
 RestartSec=5
-EnvironmentFile=-/etc/default/aimilivpn
+EnvironmentFile=/etc/aimilivpn/%i.env
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    python3 - <<'PY'
+import json
+import os
+import secrets
+import string
+from pathlib import Path
+
+cfg_dir = Path("/etc/aimilivpn")
+auth_file = cfg_dir / "console_auth.json"
+if not auth_file.exists():
+    alphabet = string.ascii_letters + string.digits
+    password = "".join(secrets.choice(alphabet) for _ in range(16))
+    secret_path = "console" + "".join(secrets.choice(alphabet) for _ in range(10))
+    auth_file.write_text(json.dumps({
+        "username": "admin",
+        "password": password,
+        "secret_path": secret_path,
+        "host": "0.0.0.0",
+        "port": 8788,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.chmod(auth_file, 0o600)
+PY
+
+    IFS=',' read -ra CC_LIST <<< "$COUNTRIES"
+    INSTANCES_JSON='{"instances":['
+    FIRST_JSON=1
+    for CC in "${CC_LIST[@]}"; do
+        CC="${CC^^}"
+        if [ -z "${TUN_DEV_MAP[$CC]:-}" ]; then
+            echo -e "${YELLOW}  -> Skipping unsupported country ${CC}; supported: JP/US/KR${PLAIN}"
+            continue
+        fi
+        CC_LO="${CC,,}"
+        DATA_DIR="${INSTALL_DIR}/data/${CC_LO}"
+        mkdir -p "$DATA_DIR"
+        cat > "/etc/aimilivpn/${CC_LO}.env" <<EOF
+INSTANCE_ID=${CC_LO}
+TUN_DEV=${TUN_DEV_MAP[$CC]}
+POLICY_TABLE=${POLICY_MAP[$CC]}
+LOCAL_PROXY_HOST=127.0.0.1
+LOCAL_PROXY_PORT=${PROXY_PORT_MAP[$CC]}
+UI_HOST=127.0.0.1
+UI_PORT=${UI_PORT_MAP[$CC]}
+VPNGATE_DATA_DIR=${DATA_DIR}
+ALLOWED_COUNTRIES=${CC}
+EXCLUDE_DATACENTER=1
+INSTANCE_API_TOKEN=${INSTANCE_API_TOKEN}
+NODE_TEST_WORKERS=2
+MAX_MAINTENANCE_TEST_NODES=18
+OPENVPN_MAINTENANCE_TEST_TIMEOUT_SECONDS=8
+NODE_RETEST_INTERVAL_SECONDS=21600
+EOF
+        chmod 600 "/etc/aimilivpn/${CC_LO}.env"
+        if [ "$FIRST_JSON" -eq 0 ]; then
+            INSTANCES_JSON="${INSTANCES_JSON},"
+        fi
+        FIRST_JSON=0
+        INSTANCES_JSON="${INSTANCES_JSON}{\"id\":\"${CC_LO}\",\"country\":\"${CC}\",\"service\":\"aimilivpn@${CC_LO}.service\",\"env_file\":\"/etc/aimilivpn/${CC_LO}.env\",\"data_dir\":\"${DATA_DIR}\",\"ui_host\":\"127.0.0.1\",\"ui_port\":${UI_PORT_MAP[$CC]},\"proxy_host\":\"127.0.0.1\",\"proxy_port\":${PROXY_PORT_MAP[$CC]},\"tun_dev\":\"${TUN_DEV_MAP[$CC]}\",\"policy_table\":${POLICY_MAP[$CC]}}"
+        echo -e "  -> ${CC}: ${TUN_DEV_MAP[$CC]}, proxy ${PROXY_PORT_MAP[$CC]}, backend UI ${UI_PORT_MAP[$CC]}"
+    done
+    INSTANCES_JSON="${INSTANCES_JSON}]}"
+    printf '%s\n' "$INSTANCES_JSON" > /etc/aimilivpn/instances.json
+    chmod 600 /etc/aimilivpn/instances.json
+
+    cat > /etc/aimilivpn/console.env <<EOF
+AIMILIVPN_CONFIG_DIR=/etc/aimilivpn
+AIMILIVPN_INSTALL_DIR=${INSTALL_DIR}
+AIMILIVPN_INSTANCES_FILE=/etc/aimilivpn/instances.json
+AIMILIVPN_CONSOLE_AUTH=/etc/aimilivpn/console_auth.json
+INSTANCE_API_TOKEN=${INSTANCE_API_TOKEN}
+EOF
+    chmod 600 /etc/aimilivpn/console.env
+
+    echo -e "  -> Writing ${SYSTEMD_UNIT_DIR}/aimilivpn-console.service ..."
+    cat > "${SYSTEMD_UNIT_DIR}/aimilivpn-console.service" <<EOF
+[Unit]
+Description=AimiliVPN unified web console
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=/usr/bin/python3 console_server.py
+Restart=always
+RestartSec=5
+EnvironmentFile=/etc/aimilivpn/console.env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     systemctl daemon-reload
-    systemctl enable aimilivpn.service
+    for CC in "${CC_LIST[@]}"; do
+        CC_LO="${CC,,}"
+        [ -f "/etc/aimilivpn/${CC_LO}.env" ] && systemctl enable "aimilivpn@${CC_LO}.service" >/dev/null 2>&1 || true
+    done
+    systemctl enable aimilivpn-console.service >/dev/null 2>&1 || true
 elif command -v rc-service >/dev/null 2>&1; then
     echo -e "  -> 检测到 OpenRC，正在创建服务配置 /etc/init.d/aimilivpn ..."
     cat > /etc/init.d/aimilivpn <<EOF
@@ -961,7 +1097,219 @@ if __name__ == "__main__":
 EOF
 chmod +x /usr/bin/ml
 
+if [ -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] || [ -f /lib/systemd/system/aimilivpn@.service ] || [ -f /usr/lib/systemd/system/aimilivpn@.service ]; then
+cat > /usr/bin/ml <<'EOF'
+#!/usr/bin/env python3
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+CONFIG_DIR = "/etc/aimilivpn"
+INSTANCES_FILE = os.path.join(CONFIG_DIR, "instances.json")
+
+def load_instances():
+    try:
+        with open(INSTANCES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("instances", [])
+    except Exception:
+        return []
+
+def find_instance(instance_id):
+    instance_id = instance_id.lower()
+    for item in load_instances():
+        if item.get("id") == instance_id:
+            return item
+    return None
+
+def run_systemctl(args):
+    return subprocess.run(["systemctl"] + args)
+
+def is_active(service):
+    return subprocess.run(["systemctl", "is-active", "--quiet", service]).returncode == 0
+
+def read_json(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+def instance_status(item):
+    state = read_json(os.path.join(item.get("data_dir", ""), "state.json"), {})
+    active_id = state.get("active_openvpn_node_id") or "-"
+    message = state.get("last_check_message") or ""
+    service = item.get("service") or f"aimilivpn@{item.get('id')}.service"
+    running = "running" if is_active(service) else "stopped"
+    return {
+        "id": item.get("id"),
+        "country": item.get("country"),
+        "service": service,
+        "running": running,
+        "proxy_port": item.get("proxy_port"),
+        "tun_dev": item.get("tun_dev"),
+        "active_node": active_id,
+        "message": message,
+    }
+
+def print_overview():
+    instances = load_instances()
+    if not instances:
+        print("No AimiliVPN instances found. Run install.sh first.")
+        return
+    print("AimiliVPN instances")
+    print("-" * 96)
+    print(f"{'ID':<6} {'Country':<8} {'Service':<10} {'Proxy':<8} {'TUN':<8} {'Active node':<28} Message")
+    print("-" * 96)
+    for item in instances:
+        s = instance_status(item)
+        print(f"{s['id']:<6} {s['country']:<8} {s['running']:<10} {str(s['proxy_port']):<8} {str(s['tun_dev']):<8} {str(s['active_node'])[:27]:<28} {s['message'][:60]}")
+
+def logs(item):
+    log_file = os.path.join(item.get("data_dir", ""), "vpngate.log")
+    if not os.path.exists(log_file):
+        print(f"Log file not found: {log_file}")
+        return
+    subprocess.run(["tail", "-f", "-n", "80", log_file])
+
+def console(action):
+    if action in ("restart", "start", "stop", "status"):
+        return run_systemctl([action, "aimilivpn-console.service"])
+    print("Usage: ml console <start|stop|restart|status>")
+    return 1
+
+def remove_path(path, recursive=False):
+    if not path or not os.path.exists(path):
+        return
+    if recursive:
+        shutil.rmtree(path)
+    else:
+        os.unlink(path)
+
+def cleanup_policy_routes(instances):
+    for item in instances:
+        table = str(item.get("policy_table") or "").strip()
+        if table.isdigit():
+            subprocess.run(["ip", "rule", "del", "table", table], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["ip", "route", "flush", "table", table], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def uninstall():
+    if os.geteuid() != 0:
+        print("Uninstall must be run as root.")
+        sys.exit(1)
+    instances = load_instances()
+    print("This will uninstall AimiliVPN multi-instance services and the unified console.")
+    print("Services and /etc/aimilivpn will be removed. Source/data are kept by default.")
+    confirm = input("Continue? Type 'yes' to uninstall: ").strip().lower()
+    if confirm != "yes":
+        print("Cancelled.")
+        return
+
+    remove_data = input("Also delete /opt/aimilivpn/data? Type 'delete-data' to remove data: ").strip().lower() == "delete-data"
+    remove_source = input("Also delete /opt/aimilivpn source directory? Type 'delete-source' to remove all source files: ").strip().lower() == "delete-source"
+
+    services = [item.get("service") or f"aimilivpn@{item.get('id')}.service" for item in instances]
+    services.append("aimilivpn-console.service")
+    services.append("aimilivpn.service")
+
+    for service in services:
+        if service:
+            subprocess.run(["systemctl", "stop", service], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["systemctl", "disable", service], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    cleanup_policy_routes(instances)
+
+    for path in [
+        "/etc/systemd/system/aimilivpn@.service",
+        "/etc/systemd/system/aimilivpn-console.service",
+        "/etc/systemd/system/aimilivpn.service",
+        "/lib/systemd/system/aimilivpn@.service",
+        "/lib/systemd/system/aimilivpn-console.service",
+        "/lib/systemd/system/aimilivpn.service",
+        "/usr/lib/systemd/system/aimilivpn@.service",
+        "/usr/lib/systemd/system/aimilivpn-console.service",
+        "/usr/lib/systemd/system/aimilivpn.service",
+        "/etc/sysctl.d/99-aimilivpn.conf",
+    ]:
+        try:
+            remove_path(path)
+        except Exception as exc:
+            print(f"Failed to remove {path}: {exc}")
+
+    try:
+        remove_path(CONFIG_DIR, recursive=True)
+    except Exception as exc:
+        print(f"Failed to remove {CONFIG_DIR}: {exc}")
+
+    if remove_data:
+        try:
+            for data_path in ["/opt/aimilivpn/data", "/opt/aimilivpn/vpngate_data"]:
+                if os.path.abspath(data_path).startswith("/opt/aimilivpn/"):
+                    remove_path(data_path, recursive=True)
+        except Exception as exc:
+            print(f"Failed to remove data: {exc}")
+
+    if remove_source:
+        try:
+            if os.path.abspath("/opt/aimilivpn") == "/opt/aimilivpn":
+                remove_path("/opt/aimilivpn", recursive=True)
+        except Exception as exc:
+            print(f"Failed to remove /opt/aimilivpn: {exc}")
+
+    try:
+        subprocess.run(["systemctl", "daemon-reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["systemctl", "reset-failed"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+    try:
+        remove_path("/usr/bin/ml")
+    except Exception as exc:
+        print(f"Failed to remove /usr/bin/ml: {exc}")
+
+    print("AimiliVPN multi-instance uninstall complete.")
+
+def main():
+    args = sys.argv[1:]
+    if args and args[0] == "uninstall":
+        uninstall()
+        return
+    if not args or args[0] == "status":
+        print_overview()
+        return
+    if args[0] == "console":
+        action = args[1] if len(args) > 1 else "status"
+        console(action)
+        return
+    item = find_instance(args[0])
+    if not item:
+        print("Unknown command or instance.")
+        print("Usage: ml status | ml <jp|us|kr> <status|start|stop|restart|logs> | ml console restart | ml uninstall")
+        return
+    action = args[1] if len(args) > 1 else "status"
+    service = item.get("service") or f"aimilivpn@{item.get('id')}.service"
+    if action == "status":
+        s = instance_status(item)
+        for key, value in s.items():
+            print(f"{key}: {value}")
+    elif action in ("start", "stop", "restart"):
+        run_systemctl([action, service])
+    elif action == "logs":
+        logs(item)
+    else:
+        print("Usage: ml <jp|us|kr> <status|start|stop|restart|logs> | ml uninstall")
+
+if __name__ == "__main__":
+    main()
+EOF
+chmod +x /usr/bin/ml
+fi
+
 # 7. Configure Custom parameters (First-time installation check)
+if [ ! -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] && [ ! -f /lib/systemd/system/aimilivpn@.service ] && [ ! -f /usr/lib/systemd/system/aimilivpn@.service ]; then
 AUTH_FILE="${INSTALL_DIR}/vpngate_data/ui_auth.json"
 mkdir -p "${INSTALL_DIR}/vpngate_data"
 
@@ -1068,6 +1416,7 @@ with open(auth_file, "w", encoding="utf-8") as f:
     json.dump(cfg, f, ensure_ascii=False, indent=2)
 PY
 fi
+fi
 
 # 8. Start service
 # 8.5 Optimize network parameters (rp_filter for policy routing)
@@ -1100,6 +1449,24 @@ if [ -d "/proc/sys/net/ipv4/conf" ]; then
     done
 fi
 
+if [ -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] || [ -f /lib/systemd/system/aimilivpn@.service ] || [ -f /usr/lib/systemd/system/aimilivpn@.service ]; then
+    echo -e "\nStarting AimiliVPN multi-instance backend and unified console..."
+    if command -v systemctl >/dev/null 2>&1; then
+        if [ -f /etc/aimilivpn/instances.json ]; then
+            for svc in $(python3 - <<'PY'
+import json
+data = json.load(open("/etc/aimilivpn/instances.json", encoding="utf-8"))
+for item in data.get("instances", []):
+    print(item.get("service", ""))
+PY
+            ); do
+                [ -n "$svc" ] && systemctl restart "$svc" || true
+            done
+        fi
+        systemctl restart aimilivpn-console.service || true
+    fi
+    echo -e "${YELLOW}Initial node fetching and VPN connection run in the background. Use 'ml status' to monitor.${PLAIN}"
+else
 echo -e "\n正在启动 AimiliVPN 服务并初始化网络..."
 if command -v systemctl >/dev/null 2>&1; then
     systemctl restart aimilivpn.service || true
@@ -1141,6 +1508,7 @@ done
 if [ -z "$ACTIVE_ID" ]; then
     echo -e "  -> ${YELLOW}[加载超时]${PLAIN} 首次节点获取或连接超时，将在后台继续尝试..."
 fi
+fi
 
 SECRET_PATH="EJsW2EeBo9lY"
 USERNAME="未配置"
@@ -1159,11 +1527,56 @@ fi
 # Get VPS public IP
 echo -e "正在获取 VPS 公网 IP..."
 PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org || curl -s --max-time 3 https://ifconfig.me || curl -s --max-time 3 icanhazip.com || echo "您的服务器公网IP")
-echo -n "$PUBLIC_IP" > "${INSTALL_DIR}/vpngate_data/public_ip.txt"
+if [ -d "${INSTALL_DIR}/vpngate_data" ]; then
+    echo -n "$PUBLIC_IP" > "${INSTALL_DIR}/vpngate_data/public_ip.txt"
+fi
 
 # Get VPS public IPv6
 echo -e "正在获取 VPS 公网 IPv6..."
 PUBLIC_IPV6=$(curl -6 -s --max-time 3 https://api.ipify.org || curl -6 -s --max-time 3 https://ifconfig.me || curl -6 -s --max-time 3 icanhazip.com || echo "")
+
+if [ -f /etc/aimilivpn/instances.json ] && [ -f /etc/aimilivpn/console_auth.json ]; then
+    python3 - "$PUBLIC_IP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+public_ip = sys.argv[1]
+instances = json.load(open("/etc/aimilivpn/instances.json", encoding="utf-8")).get("instances", [])
+for item in instances:
+    data_dir = Path(item.get("data_dir", ""))
+    if data_dir:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / "public_ip.txt").write_text(public_ip, encoding="utf-8")
+PY
+    CONSOLE_SECRET=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('secret_path',''))" 2>/dev/null || echo "")
+    CONSOLE_USER=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('username','admin'))" 2>/dev/null || echo "admin")
+    CONSOLE_PASS=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('password',''))" 2>/dev/null || echo "")
+    CONSOLE_PORT=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('port',8788))" 2>/dev/null || echo "8788")
+    echo -e "\n${GREEN}==========================================================${PLAIN}"
+    echo -e "${GREEN}             AimiliVPN multi-instance deployment complete${PLAIN}"
+    echo -e "${GREEN}==========================================================${PLAIN}"
+    echo -e "  * Unified console:  ${BLUE}http://${PUBLIC_IP}:${CONSOLE_PORT}/${CONSOLE_SECRET}/${PLAIN}"
+    if [ -n "$PUBLIC_IPV6" ]; then
+        echo -e "  * Unified console (IPv6):  ${BLUE}http://[${PUBLIC_IPV6}]:${CONSOLE_PORT}/${CONSOLE_SECRET}/${PLAIN}"
+    fi
+    echo -e "  * Console username: ${YELLOW}${CONSOLE_USER}${PLAIN}"
+    echo -e "  * Console password: ${YELLOW}${CONSOLE_PASS}${PLAIN}"
+    echo -e " --------------------------------------------------------"
+    python3 - <<'PY'
+import json
+data = json.load(open("/etc/aimilivpn/instances.json", encoding="utf-8"))
+for item in data.get("instances", []):
+    print(f"  * [{item.get('country')}] proxy: socks5://127.0.0.1:{item.get('proxy_port')}  service: {item.get('service')}")
+PY
+    echo -e " --------------------------------------------------------"
+    echo -e "  * Overview:         ${YELLOW}ml status${PLAIN}"
+    echo -e "  * Instance logs:    ${YELLOW}ml jp logs${PLAIN} / ${YELLOW}ml us logs${PLAIN} / ${YELLOW}ml kr logs${PLAIN}"
+    echo -e "  * Restart console:  ${YELLOW}ml console restart${PLAIN}"
+    echo -e "=========================================================="
+    echo
+    exit 0
+fi
 
 echo -e "\n${GREEN}==========================================================${PLAIN}"
 echo -e "${GREEN}             AimiliVPN 源码一键部署已完成！${PLAIN}"
