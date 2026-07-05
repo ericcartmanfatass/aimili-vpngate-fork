@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AimiliVPN Console Login</title>
+<style>
+body{margin:0;background:#101318;color:#eef2f7;font-family:Arial,sans-serif;display:grid;place-items:center;min-height:100vh}
+form{width:min(360px,calc(100vw - 32px));background:#171c24;border:1px solid #2b3442;border-radius:8px;padding:24px}
+h1{font-size:22px;margin:0 0 18px}label{display:block;font-size:13px;color:#aab4c3;margin:12px 0 6px}
+input,button{box-sizing:border-box;width:100%;height:42px;border-radius:6px}input{background:#0f141b;border:1px solid #334155;color:#fff;padding:0 12px}
+button{margin-top:18px;border:0;background:#2f8cff;color:#fff;font-weight:700;cursor:pointer}.err{color:#ff7b7b;min-height:20px;font-size:13px}
+</style></head><body>
+<form onsubmit="login(event)"><h1>AimiliVPN Console</h1><div class="err" id="err"></div>
+<label>Username</label><input id="u" autocomplete="username" required>
+<label>Password</label><input id="p" type="password" autocomplete="current-password" required>
+<button>Login</button></form>
+<script>
+async function login(e){e.preventDefault();err.textContent='';const r=await fetch('./api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.value,password:p.value})});if(r.ok){location.reload()}else{err.textContent='Login failed'}}
+</script></body></html>

@@ -84,7 +84,16 @@ INSTALL_DIR="/opt/aimilivpn"
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 默认部署分支（在 bate 分支设为 bate；在 main 分支设为 main）
-DEFAULT_DEPLOY_BRANCH="main"
+DEFAULT_DEPLOY_BRANCH="${DEFAULT_DEPLOY_BRANCH:-main}"
+
+write_ml_wrapper() {
+    cat > /usr/bin/ml <<EOF
+#!/usr/bin/env bash
+cd "${INSTALL_DIR}"
+exec /usr/bin/python3 -m aimilivpn.cli.main "\$@"
+EOF
+    chmod +x /usr/bin/ml
+}
 
 # 自动检测本地已安装版本当前所在的分支
 CURRENT_BRANCH=""
@@ -101,18 +110,24 @@ elif [ -f "${INSTALL_DIR}/.local_dev" ]; then
     echo -e "${GREEN}检测到本地开发模式 (.local_dev)，跳过 git pull/reset 保持本地修改。${PLAIN}"
 else
     if [ -d "${INSTALL_DIR}" ]; then
-        echo -e "  -> 目录 ${INSTALL_DIR} 已存在，正在更新并强制覆盖本地源码..."
+        echo -e "  -> 目录 ${INSTALL_DIR} 已存在，正在安全更新本地源码..."
         cd "${INSTALL_DIR}"
         git fetch --all || true
         git checkout "${DEPLOY_BRANCH}" || git checkout -b "${DEPLOY_BRANCH}" "origin/${DEPLOY_BRANCH}" || true
-        echo -e "  -> 正在强制重置本地源码至 origin/${DEPLOY_BRANCH} ..."
-        if git reset --hard "origin/${DEPLOY_BRANCH}"; then
+        echo -e "  -> 正在执行 fast-forward 更新 origin/${DEPLOY_BRANCH} ..."
+        if git pull --ff-only origin "${DEPLOY_BRANCH}"; then
             echo -e "${GREEN}  -> 源码更新成功！${PLAIN}"
         else
-            if git pull origin "${DEPLOY_BRANCH}"; then
-                echo -e "${GREEN}  -> 源码更新成功！${PLAIN}"
+            if [ "${FORCE_UPDATE:-0}" = "1" ]; then
+                echo -e "${YELLOW}  -> FORCE_UPDATE=1，正在强制重置本地源码至 origin/${DEPLOY_BRANCH} ...${PLAIN}"
+                if git reset --hard "origin/${DEPLOY_BRANCH}"; then
+                    echo -e "${GREEN}  -> 源码已强制更新。${PLAIN}"
+                else
+                    echo -e "${YELLOW}  -> 警告: git reset 失败，将保留当前本地源码并继续安装。${PLAIN}"
+                fi
             else
-                echo -e "${YELLOW}  -> 警告: git pull/reset 失败，将保留当前本地源码并继续安装。${PLAIN}"
+                echo -e "${YELLOW}  -> 警告: fast-forward 更新失败，可能存在本地修改或分叉提交。${PLAIN}"
+                echo -e "${YELLOW}  -> 已保留当前本地源码。确认要覆盖时，可重新运行: FORCE_UPDATE=1 bash install.sh${PLAIN}"
             fi
         fi
     else
@@ -143,6 +158,12 @@ if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
             if [ "$src_path" != "$dst_path" ]; then
                 cp "${SCRIPT_DIR}/${src_file}" "${INSTALL_DIR}/${src_file}"
             fi
+        fi
+    done
+    for src_dir in aimilivpn tests; do
+        if [ -d "${SCRIPT_DIR}/${src_dir}" ]; then
+            rm -rf "${INSTALL_DIR:?}/${src_dir}"
+            cp -a "${SCRIPT_DIR}/${src_dir}" "${INSTALL_DIR}/${src_dir}"
         fi
     done
     find "${INSTALL_DIR}" -maxdepth 1 -type f \( -name '*.py' -o -name '*.sh' \) -exec sed -i 's/\r$//' {} \;
@@ -180,10 +201,15 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/python3 vpngate_manager.py
+ExecStart=/usr/bin/python3 -m aimilivpn.system.vpngate_manager
 Restart=always
 RestartSec=5
 EnvironmentFile=/etc/aimilivpn/%i.env
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=${INSTALL_DIR} /etc/aimilivpn /var/log/aimilivpn
 
 [Install]
 WantedBy=multi-user.target
@@ -195,6 +221,7 @@ import os
 import secrets
 import string
 from pathlib import Path
+from aimilivpn.core.auth import hash_password
 
 cfg_dir = Path("/etc/aimilivpn")
 auth_file = cfg_dir / "console_auth.json"
@@ -204,7 +231,7 @@ if not auth_file.exists():
     secret_path = "console" + "".join(secrets.choice(alphabet) for _ in range(10))
     auth_file.write_text(json.dumps({
         "username": "admin",
-        "password": password,
+        "password_hash": hash_password(password),
         "secret_path": secret_path,
         "host": "0.0.0.0",
         "port": 8788,
@@ -271,10 +298,15 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/python3 console_server.py
+ExecStart=/usr/bin/python3 -m aimilivpn.system.console_server
 Restart=always
 RestartSec=5
 EnvironmentFile=/etc/aimilivpn/console.env
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/etc/aimilivpn /var/log/aimilivpn
 
 [Install]
 WantedBy=multi-user.target
@@ -293,7 +325,7 @@ elif command -v rc-service >/dev/null 2>&1; then
 
 description="AimiliVPN OpenVPN Manager with HTTP/SOCKS5 Proxy"
 command="/usr/bin/python3"
-command_args="${INSTALL_DIR}/vpngate_manager.py"
+command_args="-m aimilivpn.system.vpngate_manager"
 command_background="yes"
 directory="${INSTALL_DIR}"
 pidfile="/run/aimilivpn.pid"
@@ -312,1000 +344,8 @@ fi
 # 6. Configure global command shortcut "ml"
 echo -e "\n${YELLOW}[4/4] 正在创建全局命令快捷接口 'ml'...${PLAIN}"
 echo -e "  -> 正在写入管理脚本 /usr/bin/ml ..."
-cat > /usr/bin/ml <<'EOF'
-#!/usr/bin/env python3
-import sys
-import os
-import socket
-import subprocess
-import time
-import tty
-import termios
-import shutil
+write_ml_wrapper
 
-INSTALL_DIR = "/opt/aimilivpn"
-LOG_FILE = "/opt/aimilivpn/vpngate_data/vpngate.log"
-
-def generate_random_password():
-    import random
-    import string
-    chars = string.ascii_letters + string.digits
-    while True:
-        pwd = "".join(random.choices(chars, k=12))
-        if any(c.islower() for c in pwd) and any(c.isupper() for c in pwd) and any(c.isdigit() for c in pwd):
-            return pwd
-
-def generate_random_suffix():
-    import random
-    import string
-    return "".join(random.choices(string.ascii_letters + string.digits, k=12))
-
-def load_ui_cfg():
-    import json
-    path = "/opt/aimilivpn/vpngate_data/ui_auth.json"
-    cfg = {"host": "::", "port": 8787, "secret_path": "EJsW2EeBo9lY", "password": ""}
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for k, v in data.items():
-                    cfg[k] = v
-        except Exception:
-            pass
-    return cfg
-
-def save_ui_cfg(cfg):
-    import json
-    path = "/opt/aimilivpn/vpngate_data/ui_auth.json"
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception:
-        return False
-
-def load_state():
-    import json
-    path = "/opt/aimilivpn/vpngate_data/state.json"
-    state = {"active_openvpn_node_id": "", "last_check_message": "", "is_connecting": False}
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for k, v in data.items():
-                    state[k] = v
-        except Exception:
-            pass
-    return state
-
-def get_active_node_info():
-    import json
-    path = "/opt/aimilivpn/vpngate_data/nodes.json"
-    state = load_state()
-    active_id = state.get("active_openvpn_node_id")
-    if not active_id:
-        return None, None
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                nodes = json.load(f)
-                for n in nodes:
-                    if n.get("id") == active_id:
-                        ip = n.get("ip") or n.get("remote_host")
-                        loc = n.get("location") or n.get("country") or "未知"
-                        return ip, loc
-        except Exception:
-            pass
-    return None, None
-
-def ping_ip(ip):
-    if not ip:
-        return None
-    try:
-        # Run standard linux ping command with 1 packet and 2 seconds timeout
-        res = subprocess.run(["ping", "-c", "1", "-W", "2", ip], capture_output=True, text=True, timeout=3)
-        if res.returncode == 0:
-            out = res.stdout
-            lines = out.splitlines()
-            for line in lines:
-                if "rtt" in line or "min/avg" in line:
-                    parts = line.split("=")[1].strip().split("/")
-                    if len(parts) >= 2:
-                        avg_rtt = float(parts[1])
-                        return f"{int(avg_rtt)} ms"
-            return "已响应"
-        else:
-            return "检测超时"
-    except Exception:
-        return "无法连接"
-
-def get_public_ip():
-    path = "/opt/aimilivpn/vpngate_data/public_ip.txt"
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                ip = f.read().strip()
-                if ip:
-                    return ip
-        except Exception:
-            pass
-    import urllib.request
-    # Try dual-stack first, then IPv6-only, then IPv4-only
-    for api_url in ["https://api64.ipify.org", "https://api6.ipify.org", "https://api.ipify.org"]:
-        try:
-            req = urllib.request.Request(api_url, headers={"User-Agent": "curl/7.68.0"})
-            with urllib.request.urlopen(req, timeout=2) as r:
-                ip = r.read().decode().strip()
-                if ip:
-                    try:
-                        os.makedirs(os.path.dirname(path), exist_ok=True)
-                        with open(path, "w", encoding="utf-8") as f:
-                            f.write(ip)
-                    except Exception:
-                        pass
-                    return ip
-        except Exception:
-            pass
-    return "您的服务器公网IP"
-
-def check_port_listening(port):
-    for host, family in [("127.0.0.1", socket.AF_INET), ("::1", socket.AF_INET6)]:
-        try:
-            s = socket.socket(family, socket.SOCK_STREAM)
-            s.settimeout(0.2)
-            s.connect((host, port))
-            s.close()
-            return True
-        except Exception:
-            pass
-    return False
-
-def get_service_pid(service_name="aimilivpn.service"):
-    try:
-        for pid_dir in os.listdir('/proc'):
-            if pid_dir.isdigit():
-                try:
-                    with open(os.path.join('/proc', pid_dir, 'cmdline'), 'r') as f:
-                        cmd = f.read()
-                        if 'vpngate_manager.py' in cmd:
-                            return pid_dir
-                except Exception:
-                    continue
-    except Exception:
-        pass
-    return None
-
-def check_service_active(service_name="aimilivpn.service"):
-    return get_service_pid(service_name) is not None
-
-def check_openvpn_process():
-    try:
-        for pid_dir in os.listdir('/proc'):
-            if pid_dir.isdigit():
-                try:
-                    with open(os.path.join('/proc', pid_dir, 'cmdline'), 'r') as f:
-                        cmd = f.read().replace('\x00', ' ')
-                        if 'openvpn' in cmd and ('/opt/aimilivpn/vpngate_data' in cmd or '/opt/aimilivpn/vpngate_data/configs' in cmd):
-                            return True
-                except Exception:
-                    continue
-    except Exception:
-        pass
-    return False
-
-def get_display_width(s):
-    import re
-    ansi_escape = re.compile(r'\x1b\[[0-9;]*[mGKH]')
-    s_clean = ansi_escape.sub('', s)
-    width = 0
-    for char in s_clean:
-        if ord(char) > 127:
-            width += 2
-        else:
-            width += 1
-    return width
-
-def format_line(label, value, target_width=26):
-    prefix = "  ● "
-    w = get_display_width(label)
-    padding = " " * max(0, target_width - w)
-    return f"{prefix}{label}{padding}:  {value}"
-
-def print_line(text=""):
-    print(f"{text}\033[K")
-
-def print_status():
-    cfg = load_ui_cfg()
-    ui_port = cfg.get("port", 8787)
-    secret_path = cfg.get("secret_path", "EJsW2EeBo9lY")
-    proxy_port = cfg.get("proxy_port", 7928)
-    state = load_state()
-    is_connecting = state.get("is_connecting", False)
-    
-    gateway_ok = check_port_listening(proxy_port)
-    service_ok = check_service_active("aimilivpn.service")
-    openvpn_ok = check_openvpn_process()
-    pid = get_service_pid("aimilivpn.service")
-    
-    active_ip, active_loc = get_active_node_info()
-    latency = state.get("active_node_latency", "测试中...") if active_ip else "无活动连接"
-    
-    green = "\033[1;32m"
-    red = "\033[1;31m"
-    reset = "\033[0m"
-    bold = "\033[1m"
-    yellow = "\033[1;33m"
-    
-    backend_status = f"{green}[已激活] (PID: {pid}){reset}" if (service_ok and pid) else f"{red}[未启动]{reset}"
-    
-    if is_connecting:
-        gateway_status = f"{yellow}[切换中...]{reset}"
-        openvpn_status = f"{yellow}[{state.get('active_node_latency') or '连接中'}...]{reset}"
-    else:
-        gateway_status = f"{green}[已激活]{reset}" if gateway_ok else f"{red}[未启动]{reset}"
-        openvpn_status = f"{green}[已连接]{reset}" if openvpn_ok else f"{red}[未连接]{reset}"
-    
-    print_line("=======================================================")
-    print_line(f"               {bold}AimiliVPN 管理终端 v2.0{reset}                  ")
-    print_line("=======================================================")
-    print_line("【核心服务状态】")
-    print_line(format_line(f"代理网关 (Port {proxy_port})", gateway_status))
-    print_line(format_line(f"管理后台 (Port {ui_port})", backend_status))
-    print_line(format_line("连接核心 (OpenVPN)", openvpn_status))
-    
-    host_cfg = cfg.get("host", "::")
-    if host_cfg in ("127.0.0.1", "localhost"):
-        login_ip = "127.0.0.1"
-    elif host_cfg == "::1":
-        login_ip = "[::1]"
-    elif host_cfg == "::":
-        login_ip = get_public_ip()
-    else:
-        login_ip = f"[{host_cfg}]" if ":" in host_cfg else host_cfg
-    print_line(format_line("网页登录地址", f"{yellow}http://{login_ip}:{ui_port}/{secret_path}/{reset}"))
-    print_line(format_line("网页管理账号", cfg.get("username", "未配置")))
-    curr_pwd = cfg.get("password", "")
-    masked_pwd = curr_pwd if len(curr_pwd) <= 4 else curr_pwd[:3] + "********" + curr_pwd[-2:]
-    print_line(format_line("网页管理密码", masked_pwd))
-    print_line()
-    print_line("【活动节点状态】")
-    if is_connecting:
-        connecting_msg = state.get('last_check_message') or '正在建立加密隧道并验证路由规则...'
-        print_line(format_line("节点状态", f"{yellow}{connecting_msg}{reset}"))
-    elif active_ip:
-        proxy_ip = state.get("proxy_ip", "-")
-        proxy_latency = state.get("proxy_latency_ms", 0)
-        proxy_ok = state.get("proxy_ok", False)
-        
-        print_line(format_line("节点 IP (入口)", active_ip))
-        print_line(format_line("节点地区", active_loc))
-        print_line(format_line("节点延迟 (直连测试)", latency))
-        if proxy_ok and proxy_ip and proxy_ip != "-":
-            print_line(format_line("出口 IP (出站)", proxy_ip))
-            print_line(format_line("本地代理延迟", f"{proxy_latency} ms" if proxy_latency else "检测中..."))
-        else:
-            proxy_err = state.get("proxy_error") or "检测中/未就绪"
-            print_line(format_line("出口 IP (出站)", f"{red}[不可用 - {proxy_err}]{reset}"))
-    else:
-        print_line(format_line("节点状态", "无活动连接"))
-    print_line()
-    local_proxy = state.get("local_proxy", f"http://127.0.0.1:{proxy_port}")
-    import urllib.parse
-    try:
-        parsed = urllib.parse.urlsplit(local_proxy)
-        proxy_host = parsed.hostname or "127.0.0.1"
-        proxy_port = parsed.port or proxy_port
-    except Exception:
-        proxy_host = "127.0.0.1"
-        proxy_port = proxy_port
-    
-    if proxy_host == "::":
-        proxy_addr = "127.0.0.1"
-    elif ":" in proxy_host:
-        proxy_addr = f"[{proxy_host}]"
-    else:
-        proxy_addr = proxy_host
-
-    print_line("【使用方法】")
-    print_line(f"  export http_proxy=http://{proxy_addr}:{proxy_port}")
-    print_line(f"  export https_proxy=http://{proxy_addr}:{proxy_port}")
-    print_line(f"  # 也可用于 SOCKS5: socks5://{proxy_addr}:{proxy_port}")
-    print_line("=======================================================")
-
-def run_service_cmd(cmd):
-    if shutil.which("systemctl"):
-        subprocess.run(["systemctl", cmd, "aimilivpn.service"])
-    elif shutil.which("rc-service"):
-        subprocess.run(["rc-service", "aimilivpn", cmd])
-    else:
-        print("未检测到支持的服务管理器 (systemd/OpenRC)")
-
-def start_service():
-    print("正在启动 AimiliVPN 服务...", flush=True)
-    run_service_cmd("start")
-    print("已发送启动指令。")
-    time.sleep(1)
-
-def stop_service():
-    print("正在停止 AimiliVPN 服务...", flush=True)
-    run_service_cmd("stop")
-    print("已发送停止指令。")
-    time.sleep(1)
-
-def restart_service():
-    print("正在重启 AimiliVPN 服务...", flush=True)
-    run_service_cmd("restart")
-    print("已发送重启指令。")
-    time.sleep(1)
-
-def show_logs():
-    print("正在查看 AimiliVPN 日志 (按 Ctrl+C 退出)...", flush=True)
-    if os.path.exists(LOG_FILE):
-        try:
-            subprocess.run(["tail", "-f", "-n", "50", LOG_FILE])
-        except KeyboardInterrupt:
-            pass
-    else:
-        print(f"日志文件不存在: {LOG_FILE}")
-        time.sleep(2)
-
-def update_service():
-    print("正在获取远程更新并检测版本...", flush=True)
-    if os.path.exists(INSTALL_DIR):
-        try:
-            os.chdir(INSTALL_DIR)
-            if not os.path.exists(".git"):
-                print("错误: 当前安装目录不是 Git 仓库，无法通过 Git 更新。")
-                time.sleep(3)
-                return
-            
-            # Fetch remote origin updates
-            subprocess.run(["git", "fetch", "--all"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Detect remote branch (prefer current local branch, fallback to origin/main or origin/master)
-            curr = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
-            branch = curr.stdout.strip() if curr.returncode == 0 else ""
-            if not branch or branch == "HEAD":
-                branch = "main"
-                for b in ["main", "master"]:
-                    chk = subprocess.run(["git", "rev-parse", "--verify", f"origin/{b}"], capture_output=True, text=True)
-                    if chk.returncode == 0:
-                        branch = b
-                        break
-            
-            local_commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-            remote_commit = subprocess.run(["git", "rev-parse", f"origin/{branch}"], capture_output=True, text=True).stdout.strip()
-            
-            if local_commit == remote_commit:
-                print("\n【版本状态】当前已是最新版本，无需更新！")
-                override = input("是否强制重新拉取代码并覆盖安装？(y/N): ").strip().lower()
-                if override != 'y':
-                    print("已取消更新。")
-                    time.sleep(1.5)
-                    return
-            else:
-                print(f"\n【检测到更新】本地版本: {local_commit[:8]}，远程最新版本: {remote_commit[:8]}")
-                confirm = input("是否确认开始更新并重启服务？(Y/n): ").strip().lower()
-                if confirm not in ('', 'y', 'yes'):
-                    print("已取消更新。")
-                    time.sleep(1.5)
-                    return
-            
-            print(f"\n正在强制重置本地代码至 origin/{branch} ...", flush=True)
-            subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], check=True)
-            
-            # Clean up python cache files
-            print("正在清理 Python 缓存 (pycache)...", flush=True)
-            subprocess.run(["find", ".", "-type", "d", "-name", "__pycache__", "-exec", "rm", "-rf", "{}", "+"], check=False)
-            
-            print("代码拉取成功，正在重新运行安装脚本...", flush=True)
-            subprocess.run(["bash", "install.sh"])
-            print("更新已完成！")
-            time.sleep(2)
-        except Exception as e:
-            print(f"更新失败: {e}")
-            time.sleep(4)
-    else:
-        print(f"未找到安装目录: {INSTALL_DIR}")
-        time.sleep(2)
-
-def uninstall_service():
-    confirm = input("确定要完全卸载 AimiliVPN 吗？(y/N): ")
-    if confirm.lower() == 'y':
-        print("正在完全卸载 AimiliVPN...", flush=True)
-        stop_service()
-        if shutil.which("systemctl"):
-            subprocess.run(["systemctl", "disable", "aimilivpn.service"])
-            try:
-                os.unlink("/lib/systemd/system/aimilivpn.service")
-            except Exception:
-                pass
-        elif shutil.which("rc-service"):
-            subprocess.run(["rc-update", "del", "aimilivpn"])
-            try:
-                os.unlink("/etc/init.d/aimilivpn")
-            except Exception:
-                pass
-        try:
-            os.unlink("/usr/bin/ml")
-        except Exception:
-            pass
-        subprocess.run(["rm", "-rf", INSTALL_DIR])
-        print("AimiliVPN 已卸载！")
-        sys.exit(0)
-    else:
-        print("已取消卸载。")
-        time.sleep(1)
-
-def ask_restart():
-    ans = input("配置已保存。是否立即重启服务生效？(Y/n): ").strip().lower()
-    if ans in ('', 'y', 'yes'):
-        print("正在重启 AimiliVPN 服务...", flush=True)
-        restart_service()
-        print("服务已重启。")
-        time.sleep(1.5)
-
-def configure_web():
-    cfg = load_ui_cfg()
-    while True:
-        print("\033[H\033[J", end="")
-        print("=======================================================")
-        print("               网页绑定与地址后缀配置                  ")
-        print("=======================================================")
-        print(f"  [1] 切换绑定地址 (当前: {cfg.get('host', '0.0.0.0')})")
-        print(f"  [2] 随机重置安全后缀 (当前: {cfg.get('secret_path', '')})")
-        print("  [3] 返回主菜单")
-        print("=======================================================")
-        print("请直接输入数字键 [1-3] 快速执行：", end="", flush=True)
-        
-        key = getch()
-        if key == '1':
-            print("\033[H\033[J", end="")
-            print("选择网页登录绑定地址：")
-            print("  1. 仅允许本地 IPv4 登录 (127.0.0.1 - 更安全)")
-            print("  2. 允许 IPv4 公网登录 (0.0.0.0)")
-            print("  3. 允许 IPv4 & IPv6 双栈公网登录 (:: - 推荐)")
-            print("  4. 仅允许本地 IPv6 登录 (::1)")
-            sel = input("请选择 (1/2/3/4, 默认3): ").strip()
-            if sel == '1':
-                cfg['host'] = "127.0.0.1"
-            elif sel == '2':
-                cfg['host'] = "0.0.0.0"
-            elif sel == '4':
-                cfg['host'] = "::1"
-            else:
-                cfg['host'] = "::"
-            save_ui_cfg(cfg)
-            print(f"绑定地址已更新为: {cfg['host']}")
-            ask_restart()
-            break
-        elif key == '2':
-            print("\033[H\033[J", end="")
-            new_path = generate_random_suffix()
-            cfg['secret_path'] = new_path
-            save_ui_cfg(cfg)
-            print("安全登录后缀已随机重置成功！")
-            print(f"您的全新安全登录后缀为: {new_path}")
-            display_host = cfg['host']
-            if ":" in display_host:
-                display_host = f"[{display_host}]"
-            print(f"新的访问路径为: http://{display_host}:{cfg['port']}/{new_path}/")
-            ask_restart()
-            break
-        elif key == '3' or key == 'q' or key == '\x03':
-            break
-
-def configure_port():
-    cfg = load_ui_cfg()
-    while True:
-        print("\033[H\033[J", end="")
-        print("=======================================================")
-        print("                      端口配置菜单                     ")
-        print("=======================================================")
-        print(f"1) 网页管理端口: {cfg.get('port', 8787)}")
-        print(f"2) 代理出站端口: {cfg.get('proxy_port', 7928)}")
-        print("3) 返回主菜单")
-        print("-------------------------------------------------------")
-        key = input("请选择操作 (1-3): ").strip()
-        if key == '1':
-            try:
-                val = input("请输入新的网页管理端口 (1-65535, 按回车取消): ").strip()
-                if val:
-                    port = int(val)
-                    if 1 <= port <= 65535:
-                        if port == int(cfg.get('proxy_port', 7928)):
-                            print("错误: 网页管理端口不能与代理出站端口相同。")
-                            time.sleep(2)
-                            continue
-                        cfg['port'] = port
-                        save_ui_cfg(cfg)
-                        print(f"网页管理端口已更新为: {port}")
-                        ask_restart()
-                    else:
-                        print("错误: 端口范围必须在 1 至 65535 之间。")
-                        time.sleep(2)
-            except ValueError:
-                print("错误: 输入必须是数字。")
-                time.sleep(2)
-        elif key == '2':
-            try:
-                val = input("请输入新的代理出站端口 (1024-65535, 按回车取消): ").strip()
-                if val:
-                    port = int(val)
-                    if 1024 <= port <= 65535:
-                        if port == int(cfg.get('port', 8787)):
-                            print("错误: 代理出站端口不能与网页管理端口相同。")
-                            time.sleep(2)
-                            continue
-                        cfg['proxy_port'] = port
-                        save_ui_cfg(cfg)
-                        print(f"代理出站端口已更新为: {port}")
-                        ask_restart()
-                    else:
-                        print("错误: 端口范围必须在 1024 至 65535 之间。")
-                        time.sleep(2)
-            except ValueError:
-                print("错误: 输入必须是数字。")
-                time.sleep(2)
-        elif key == '3' or key == 'q' or key == '\x03':
-            break
-
-def configure_credentials():
-    cfg = load_ui_cfg()
-    while True:
-        print("\033[H\033[J", end="")
-        print("=======================================================")
-        print("                    管理账号密码管理                   ")
-        print("=======================================================")
-        curr_uname = cfg.get('username', '未配置')
-        curr_pwd = cfg.get('password', '')
-        masked_pwd = curr_pwd if len(curr_pwd) <= 4 else curr_pwd[:3] + "********" + curr_pwd[-2:]
-        print(f"当前管理账号: {curr_uname}")
-        print(f"当前管理密码: {masked_pwd}")
-        print("  [1] 自定义修改账号密码")
-        print("  [2] 随机重置安全密码")
-        print("  [3] 返回主菜单")
-        print("=======================================================")
-        print("请直接输入数字键 [1-3] 快速执行：", end="", flush=True)
-        
-        key = getch()
-        if key == '1':
-            print("\033[H\033[J", end="")
-            new_uname = input(f"请输入新管理账号 (回车默认 {curr_uname}): ").strip()
-            if not new_uname:
-                new_uname = curr_uname
-            new_pwd = input("请输入新管理密码 (不能为空): ").strip()
-            if not new_pwd:
-                print("错误: 密码不能为空！")
-                time.sleep(2)
-                continue
-            cfg['username'] = new_uname
-            cfg['password'] = new_pwd
-            save_ui_cfg(cfg)
-            print("账号密码修改成功！")
-            print(f"您的新管理账号: {new_uname}")
-            print(f"您的新管理密码: {new_pwd}")
-            input("\n按任意键返回菜单...")
-        elif key == '2':
-            print("\033[H\033[J", end="")
-            new_pwd = generate_random_password()
-            cfg['password'] = new_pwd
-            save_ui_cfg(cfg)
-            print("密码随机重置成功！")
-            print(f"您的全新12位安全密码为: {new_pwd}")
-            print("密码已保存在本地，不需要重启服务，刷新浏览器即可登录。")
-            input("\n按任意键返回菜单...")
-        elif key == '3' or key == 'q' or key == '\x03':
-            break
-
-def getch():
-    fd = sys.stdin.fileno()
-    try:
-        old_settings = termios.tcgetattr(fd)
-    except termios.error:
-        ch = sys.stdin.read(1)
-        return ch if ch else "q"
-    try:
-        tty.setraw(sys.stdin.fileno())
-        ch = sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch if ch else "q"
-
-def getch_timeout(timeout=1.0):
-    import select
-    fd = sys.stdin.fileno()
-    try:
-        old_settings = termios.tcgetattr(fd)
-    except termios.error:
-        try:
-            r, _, _ = select.select([sys.stdin], [], [], timeout)
-            if r:
-                ch = sys.stdin.read(1)
-                if not ch:
-                    time.sleep(timeout)
-                    return None
-                return ch
-        except Exception:
-            time.sleep(timeout)
-        return None
-    try:
-        tty.setraw(fd)
-        r, _, _ = select.select([sys.stdin], [], [], timeout)
-        if r:
-            ch = sys.stdin.read(1)
-            if not ch:
-                return None
-            return ch
-        return None
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-def get_status_state():
-    cfg = load_ui_cfg()
-    state = load_state()
-    proxy_port = cfg.get("proxy_port", 7928)
-    return (
-        cfg.get("port", 8787),
-        cfg.get("secret_path", "EJsW2EeBo9lY"),
-        cfg.get("username", "未配置"),
-        cfg.get("password", ""),
-        cfg.get("host", "0.0.0.0"),
-        state.get("is_connecting", False),
-        state.get("active_openvpn_node_id", ""),
-        state.get("last_check_message", ""),
-        state.get("active_node_latency", ""),
-        state.get("proxy_ip", "-"),
-        state.get("proxy_latency_ms", 0),
-        state.get("proxy_ok", False),
-        check_port_listening(proxy_port),
-        check_service_active("aimilivpn.service"),
-        check_openvpn_process(),
-        get_service_pid("aimilivpn.service")
-    )
-
-def main():
-    if os.geteuid() != 0:
-        print("错误: 必须以 root 权限运行此命令。")
-        sys.exit(1)
-        
-    if len(sys.argv) > 1:
-        cmd = sys.argv[1].lower()
-        if cmd == "start":
-            start_service()
-        elif cmd == "stop":
-            stop_service()
-        elif cmd == "restart":
-            restart_service()
-        elif cmd == "status":
-            print("\033[?1049h\033[?25l\033[H\033[J", end="", flush=True)
-            try:
-                while True:
-                    print("\033[H", end="")
-                    print_status()
-                    print_line("\n\033[1;33m提示: 当前为静态页面。按 [回车键/Enter] 手动刷新状态，按 [q] 或 [Ctrl+C] 退出...\033[0m")
-                    print("\033[J", end="", flush=True)
-                    
-                    key = getch()
-                    if key in ('q', 'Q', '\x03'):
-                        break
-                    if key in ('\r', '\n', '\x0a', '\x0d'):
-                        continue
-            except KeyboardInterrupt:
-                pass
-            finally:
-                print("\033[?1049l\033[?25h", end="", flush=True)
-        elif cmd == "logs":
-            show_logs()
-        elif cmd == "update":
-            update_service()
-        elif cmd == "uninstall":
-            uninstall_service()
-        elif cmd == "web":
-            configure_web()
-        elif cmd == "port":
-            configure_port()
-        elif cmd == "password":
-            configure_credentials()
-        else:
-            print("未知命令。可用命令: start, stop, restart, status, logs, update, uninstall, web, port, password")
-        sys.exit(0)
-        
-    options = {
-        '1': ("启动服务 (ml start)", start_service),
-        '2': ("停止服务 (ml stop)", stop_service),
-        '3': ("重启服务 (ml restart)", restart_service),
-        '4': ("日志监控 (ml logs)", show_logs),
-        '5': ("网页配置 (ml web)", configure_web),
-        '6': ("端口配置 (ml port)", configure_port),
-        '7': ("账号密码 (ml password)", configure_credentials),
-        '8': ("一键更新 (ml update)", update_service),
-        '9': ("完全卸载 (ml uninstall)", uninstall_service),
-        '0': ("退出终端", None)
-    }
-    
-    # Enter alternate buffer and hide cursor
-    print("\033[?1049h\033[?25l\033[H\033[J", end="", flush=True)
-    try:
-        need_redraw = True
-        while True:
-            if need_redraw:
-                print("\033[H", end="")
-                print_status()
-                
-                bold = "\033[1m"
-                reset = "\033[0m"
-                green = "\033[1;32m"
-                
-                print_line(f"【{bold}终端指令菜单栏{reset}】")
-                for key in sorted(options.keys()):
-                    if key == '0':
-                        continue
-                    name, _ = options[key]
-                    print_line(f"  {green}[{key}]{reset} {name}")
-                print_line(f"  {green}[0]{reset} {options['0'][0]}")
-                print_line("=======================================================")
-                print_line("提示: 当前为静态页面。按 [回车键/Enter] 手动刷新状态。")
-                print("请直接输入数字键 [0-9] 快速选择执行：\033[K", end="", flush=True)
-                print("\033[J", end="", flush=True)
-                need_redraw = False
-                
-            try:
-                key = getch()
-            except KeyboardInterrupt:
-                break
-                
-            if key == '\x03' or key == 'q' or key == 'Q':
-                break
-                
-            if key == '0':
-                break
-                
-            if key in ('\r', '\n', '\x0a', '\x0d'):
-                need_redraw = True
-                continue
-                
-            if key in options:
-                name, func = options[key]
-                if func is None:
-                    break
-                    
-                # Temporarily restore normal terminal scrollback and show cursor
-                print("\033[?1049l\033[?25h", end="", flush=True)
-                print(f"正在执行: {name}...\n")
-                
-                try:
-                    func()
-                except Exception as e:
-                    print(f"执行出错: {e}")
-                    
-                if func not in (start_service, stop_service, restart_service,
-                                configure_web, configure_port, configure_credentials, show_logs, update_service):
-                    input("\n操作已完成，按回车键返回主菜单...")
-                    
-                # Re-enter alternate buffer and hide cursor
-                print("\033[?1049h\033[?25l\033[H\033[J", end="", flush=True)
-                need_redraw = True
-    finally:
-        # Exit alternate buffer and show cursor on exit
-        print("\033[?1049l\033[?25h", end="", flush=True)
-
-if __name__ == "__main__":
-    main()
-EOF
-chmod +x /usr/bin/ml
-
-if [ -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] || [ -f /lib/systemd/system/aimilivpn@.service ] || [ -f /usr/lib/systemd/system/aimilivpn@.service ]; then
-cat > /usr/bin/ml <<'EOF'
-#!/usr/bin/env python3
-import json
-import os
-import shutil
-import subprocess
-import sys
-import time
-
-CONFIG_DIR = "/etc/aimilivpn"
-INSTANCES_FILE = os.path.join(CONFIG_DIR, "instances.json")
-
-def load_instances():
-    try:
-        with open(INSTANCES_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("instances", [])
-    except Exception:
-        return []
-
-def find_instance(instance_id):
-    instance_id = instance_id.lower()
-    for item in load_instances():
-        if item.get("id") == instance_id:
-            return item
-    return None
-
-def run_systemctl(args):
-    return subprocess.run(["systemctl"] + args)
-
-def is_active(service):
-    return subprocess.run(["systemctl", "is-active", "--quiet", service]).returncode == 0
-
-def read_json(path, default):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-def instance_status(item):
-    state = read_json(os.path.join(item.get("data_dir", ""), "state.json"), {})
-    active_id = state.get("active_openvpn_node_id") or "-"
-    message = state.get("last_check_message") or ""
-    service = item.get("service") or f"aimilivpn@{item.get('id')}.service"
-    running = "running" if is_active(service) else "stopped"
-    return {
-        "id": item.get("id"),
-        "country": item.get("country"),
-        "service": service,
-        "running": running,
-        "proxy_port": item.get("proxy_port"),
-        "tun_dev": item.get("tun_dev"),
-        "active_node": active_id,
-        "message": message,
-    }
-
-def print_overview():
-    instances = load_instances()
-    if not instances:
-        print("No AimiliVPN instances found. Run install.sh first.")
-        return
-    print("AimiliVPN instances")
-    print("-" * 96)
-    print(f"{'ID':<6} {'Country':<8} {'Service':<10} {'Proxy':<8} {'TUN':<8} {'Active node':<28} Message")
-    print("-" * 96)
-    for item in instances:
-        s = instance_status(item)
-        print(f"{s['id']:<6} {s['country']:<8} {s['running']:<10} {str(s['proxy_port']):<8} {str(s['tun_dev']):<8} {str(s['active_node'])[:27]:<28} {s['message'][:60]}")
-
-def logs(item):
-    log_file = os.path.join(item.get("data_dir", ""), "vpngate.log")
-    if not os.path.exists(log_file):
-        print(f"Log file not found: {log_file}")
-        return
-    subprocess.run(["tail", "-f", "-n", "80", log_file])
-
-def console(action):
-    if action in ("restart", "start", "stop", "status"):
-        return run_systemctl([action, "aimilivpn-console.service"])
-    print("Usage: ml console <start|stop|restart|status>")
-    return 1
-
-def remove_path(path, recursive=False):
-    if not path or not os.path.exists(path):
-        return
-    if recursive:
-        shutil.rmtree(path)
-    else:
-        os.unlink(path)
-
-def cleanup_policy_routes(instances):
-    for item in instances:
-        table = str(item.get("policy_table") or "").strip()
-        if table.isdigit():
-            subprocess.run(["ip", "rule", "del", "table", table], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["ip", "route", "flush", "table", table], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-def uninstall():
-    if os.geteuid() != 0:
-        print("Uninstall must be run as root.")
-        sys.exit(1)
-    instances = load_instances()
-    print("This will uninstall AimiliVPN multi-instance services and the unified console.")
-    print("Services and /etc/aimilivpn will be removed. Source/data are kept by default.")
-    confirm = input("Continue? Type 'yes' to uninstall: ").strip().lower()
-    if confirm != "yes":
-        print("Cancelled.")
-        return
-
-    remove_data = input("Also delete /opt/aimilivpn/data? Type 'delete-data' to remove data: ").strip().lower() == "delete-data"
-    remove_source = input("Also delete /opt/aimilivpn source directory? Type 'delete-source' to remove all source files: ").strip().lower() == "delete-source"
-
-    services = [item.get("service") or f"aimilivpn@{item.get('id')}.service" for item in instances]
-    services.append("aimilivpn-console.service")
-    services.append("aimilivpn.service")
-
-    for service in services:
-        if service:
-            subprocess.run(["systemctl", "stop", service], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["systemctl", "disable", service], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    cleanup_policy_routes(instances)
-
-    for path in [
-        "/etc/systemd/system/aimilivpn@.service",
-        "/etc/systemd/system/aimilivpn-console.service",
-        "/etc/systemd/system/aimilivpn.service",
-        "/lib/systemd/system/aimilivpn@.service",
-        "/lib/systemd/system/aimilivpn-console.service",
-        "/lib/systemd/system/aimilivpn.service",
-        "/usr/lib/systemd/system/aimilivpn@.service",
-        "/usr/lib/systemd/system/aimilivpn-console.service",
-        "/usr/lib/systemd/system/aimilivpn.service",
-        "/etc/sysctl.d/99-aimilivpn.conf",
-    ]:
-        try:
-            remove_path(path)
-        except Exception as exc:
-            print(f"Failed to remove {path}: {exc}")
-
-    try:
-        remove_path(CONFIG_DIR, recursive=True)
-    except Exception as exc:
-        print(f"Failed to remove {CONFIG_DIR}: {exc}")
-
-    if remove_data:
-        try:
-            for data_path in ["/opt/aimilivpn/data", "/opt/aimilivpn/vpngate_data"]:
-                if os.path.abspath(data_path).startswith("/opt/aimilivpn/"):
-                    remove_path(data_path, recursive=True)
-        except Exception as exc:
-            print(f"Failed to remove data: {exc}")
-
-    if remove_source:
-        try:
-            if os.path.abspath("/opt/aimilivpn") == "/opt/aimilivpn":
-                remove_path("/opt/aimilivpn", recursive=True)
-        except Exception as exc:
-            print(f"Failed to remove /opt/aimilivpn: {exc}")
-
-    try:
-        subprocess.run(["systemctl", "daemon-reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["systemctl", "reset-failed"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
-
-    try:
-        remove_path("/usr/bin/ml")
-    except Exception as exc:
-        print(f"Failed to remove /usr/bin/ml: {exc}")
-
-    print("AimiliVPN multi-instance uninstall complete.")
-
-def main():
-    args = sys.argv[1:]
-    if args and args[0] == "uninstall":
-        uninstall()
-        return
-    if not args or args[0] == "status":
-        print_overview()
-        return
-    if args[0] == "console":
-        action = args[1] if len(args) > 1 else "status"
-        console(action)
-        return
-    item = find_instance(args[0])
-    if not item:
-        print("Unknown command or instance.")
-        print("Usage: ml status | ml <jp|us|kr> <status|start|stop|restart|logs> | ml console restart | ml uninstall")
-        return
-    action = args[1] if len(args) > 1 else "status"
-    service = item.get("service") or f"aimilivpn@{item.get('id')}.service"
-    if action == "status":
-        s = instance_status(item)
-        for key, value in s.items():
-            print(f"{key}: {value}")
-    elif action in ("start", "stop", "restart"):
-        run_systemctl([action, service])
-    elif action == "logs":
-        logs(item)
-    else:
-        print("Usage: ml <jp|us|kr> <status|start|stop|restart|logs> | ml uninstall")
-
-if __name__ == "__main__":
-    main()
-EOF
-chmod +x /usr/bin/ml
-fi
 
 # 7. Configure Custom parameters (First-time installation check)
 if [ ! -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] && [ ! -f /lib/systemd/system/aimilivpn@.service ] && [ ! -f /usr/lib/systemd/system/aimilivpn@.service ]; then
@@ -1401,6 +441,7 @@ while True:
     python3 - "$AUTH_FILE" "$UI_PORT" "$SECRET_PATH" "$UI_USERNAME" "$UI_PASSWORD" <<'PY'
 import json
 import sys
+from aimilivpn.core.auth import hash_password
 
 auth_file, ui_port, secret_path, username, password = sys.argv[1:6]
 cfg = {
@@ -1409,7 +450,7 @@ cfg = {
     "proxy_port": 7928,
     "secret_path": secret_path,
     "username": username,
-    "password": password,
+    "password_hash": hash_password(password),
 }
 with open(auth_file, "w", encoding="utf-8") as f:
     json.dump(cfg, f, ensure_ascii=False, indent=2)
@@ -1418,8 +459,8 @@ fi
 fi
 
 # 8. Start service
-# 8.5 Optimize network parameters (rp_filter for policy routing)
-echo -e "\n正在优化网络参数 (配置反向路径过滤 rp_filter=2 以支持策略路由)..."
+# 8.5 Persist network parameters needed for policy routing.
+echo -e "\n正在写入持久化网络参数 (rp_filter=2 以支持策略路由)..."
 if [ -d "/etc/sysctl.d" ]; then
     cat > /etc/sysctl.d/99-aimilivpn.conf <<EOF
 net.ipv4.conf.all.rp_filter = 2
@@ -1437,15 +478,6 @@ else
         sed -i 's/net.ipv4.conf.default.rp_filter\s*=\s*[0-9]/net.ipv4.conf.default.rp_filter = 2/g' /etc/sysctl.conf
     fi
     sysctl -p >/dev/null 2>&1 || true
-fi
-# Apply to currently active interfaces dynamically (prefer native proc write for BusyBox/Alpine compatibility)
-echo "2" > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || sysctl -w net.ipv4.conf.all.rp_filter=2 >/dev/null 2>&1 || true
-echo "2" > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || sysctl -w net.ipv4.conf.default.rp_filter=2 >/dev/null 2>&1 || true
-if [ -d "/proc/sys/net/ipv4/conf" ]; then
-    for dev_dir in /proc/sys/net/ipv4/conf/*; do
-        dev_name=$(basename "$dev_dir")
-        echo "2" > "/proc/sys/net/ipv4/conf/${dev_name}/rp_filter" 2>/dev/null || sysctl -w net.ipv4.conf.${dev_name}.rp_filter=2 >/dev/null 2>&1 || true
-    done
 fi
 
 if [ -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] || [ -f /lib/systemd/system/aimilivpn@.service ] || [ -f /usr/lib/systemd/system/aimilivpn@.service ]; then
@@ -1511,14 +543,12 @@ fi
 
 SECRET_PATH="EJsW2EeBo9lY"
 USERNAME="未配置"
-PASSWORD="未配置"
 UI_PORT=8787
 PROXY_PORT=7928
 AUTH_FILE="${INSTALL_DIR}/vpngate_data/ui_auth.json"
 if [ -f "$AUTH_FILE" ]; then
     SECRET_PATH=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('secret_path', 'EJsW2EeBo9lY'))" 2>/dev/null || echo "EJsW2EeBo9lY")
     USERNAME=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('username', '未配置'))" 2>/dev/null || echo "未配置")
-    PASSWORD=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('password', '未配置'))" 2>/dev/null || echo "未配置")
     UI_PORT=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('port', 8787))" 2>/dev/null || echo "8787")
     PROXY_PORT=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('proxy_port', 7928))" 2>/dev/null || echo "7928")
 fi
@@ -1550,7 +580,6 @@ for item in instances:
 PY
     CONSOLE_SECRET=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('secret_path',''))" 2>/dev/null || echo "")
     CONSOLE_USER=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('username','admin'))" 2>/dev/null || echo "admin")
-    CONSOLE_PASS=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('password',''))" 2>/dev/null || echo "")
     CONSOLE_PORT=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('port',8788))" 2>/dev/null || echo "8788")
     echo -e "\n${GREEN}==========================================================${PLAIN}"
     echo -e "${GREEN}             AimiliVPN multi-instance deployment complete${PLAIN}"
@@ -1560,7 +589,7 @@ PY
         echo -e "  * Unified console (IPv6):  ${BLUE}http://[${PUBLIC_IPV6}]:${CONSOLE_PORT}/${CONSOLE_SECRET}/${PLAIN}"
     fi
     echo -e "  * Console username: ${YELLOW}${CONSOLE_USER}${PLAIN}"
-    echo -e "  * Console password: ${YELLOW}${CONSOLE_PASS}${PLAIN}"
+    echo -e "  * Console password: ${YELLOW}set; use the Web UI to change it${PLAIN}"
     echo -e " --------------------------------------------------------"
     python3 - <<'PY'
 import json
@@ -1570,8 +599,10 @@ for item in data.get("instances", []):
 PY
     echo -e " --------------------------------------------------------"
     echo -e "  * Overview:         ${YELLOW}ml status${PLAIN}"
-    echo -e "  * Instance logs:    ${YELLOW}ml jp logs${PLAIN} / ${YELLOW}ml us logs${PLAIN} / ${YELLOW}ml kr logs${PLAIN}"
-    echo -e "  * Restart console:  ${YELLOW}ml console restart${PLAIN}"
+    echo -e "  * Logs:             ${YELLOW}ml logs${PLAIN}"
+    echo -e "  * Restart services: ${YELLOW}ml restart${PLAIN}"
+    echo -e "  * Web URLs:         ${YELLOW}ml web${PLAIN}"
+    echo -e "  * Password status:  ${YELLOW}ml password${PLAIN}"
     echo -e "=========================================================="
     echo
     exit 0
@@ -1585,11 +616,13 @@ if [ -n "$PUBLIC_IPV6" ]; then
     echo -e "  * 网页控制面板(IPv6):  ${BLUE}http://[${PUBLIC_IPV6}]:${UI_PORT}/${SECRET_PATH}/${PLAIN}"
 fi
 echo -e "  * 网页管理账号:  ${YELLOW}${USERNAME}${PLAIN}"
-echo -e "  * 网页管理密码:  ${YELLOW}${PASSWORD}${PLAIN}"
+echo -e "  * Web password:    ${YELLOW}set; use the Web UI to change it${PLAIN}"
 echo -e "  * HTTP/SOCKS5 代理端口:  ${BLUE}http://127.0.0.1:${PROXY_PORT}/${PLAIN}  或  ${BLUE}http://[::1]:${PROXY_PORT}/${PLAIN}"
 echo -e " --------------------------------------------------------"
 echo -e "  * 快速状态指令:   ${YELLOW}ml status${PLAIN}  或  ${YELLOW}ml${PLAIN}"
 echo -e "  * 查看实时日志:   ${YELLOW}ml logs${PLAIN}"
+echo -e "  * Web URLs:        ${YELLOW}ml web${PLAIN}"
+echo -e "  * Password status: ${YELLOW}ml password${PLAIN}"
 echo -e "  * 停止服务:       ${YELLOW}ml stop${PLAIN}"
 echo -e "  * 重启服务:       ${YELLOW}ml restart${PLAIN}"
 echo -e "=========================================================="

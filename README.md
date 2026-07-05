@@ -23,7 +23,7 @@ AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN
 
 #### 🌟 正式稳定版本 (main 分支)
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/baoweise-bot/aimili-vpngate/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/main/install.sh)
 ```
 > 💡 **小贴士**：部署完成后，终端会输出管理网页的专属链接（含随机安全后缀，如 `http://your_vps_ip:8787/u71e9IXp4TPx`）。在终端中输入 `ml` 命令可以随时调出交互式命令行管理菜单。
 
@@ -78,6 +78,10 @@ bash <(curl -Ls https://raw.githubusercontent.com/baoweise-bot/aimili-vpngate/ma
 * **日志追踪面板**：
   - **分类过滤**：可精准筛选查看特定功能的日志（如 VPN 连接日志、API 请求日志、系统异常等）。
   - **实时滚动与管理**：日志实时滚动加载，支持一键复制代码、一键导出 `.log` 日志文件到本地。
+* **自定义地区与质量检测**：
+  - 支持自定义地区规则，并可按地区筛选节点。
+  - 节点质量结果会记录延迟、OpenVPN 检测状态、风险信息和最近检查时间。
+  - 如配置 Scamalytics 账号，风险检测只在服务端执行，API key 不会下发到前端。
 
 ---
 
@@ -102,7 +106,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/baoweise-bot/aimili-vpngate/ma
 * **原因**：您的 VPS DNS 解析异常，或者官方 VPNGate 域名遭防火墙拦截污染，导致无法下载节点列表。
 * **解决办法**：
   * **设置上游代理**：如果您有其他可用的代理服务，可在网页管理面板中打开“管理员 -> 代理及网络设置”，配置有效的 HTTP/SOCKS5 上游代理，后台会自动通过该代理拉取更新。
-  * **修改 DNS 解析器**：在终端修改 `/etc/resolv.conf`，将域名服务器替换为公共 DNS（如 `nameserver 8.8.8.8` 和 `nameserver 1.1.1.1`）。
+  * **修复系统 DNS**：优先使用发行版支持的方式修改 DNS，例如 `resolvectl dns`、netplan、NetworkManager 或云厂商控制台。不要把直接编辑 `/etc/resolv.conf` 当作默认修复方式；它在很多 systemd-resolved 环境中只是临时文件或符号链接。
 
 #### 4. VPN 已成功连接，但客户端设置代理后无法上网 (无流量)
 * **原因**：部分系统启用了严格的反向路径过滤（`rp_filter`），导致策略路由的入站/出站数据包被系统误判丢弃。
@@ -140,7 +144,7 @@ Run the corresponding command on your Linux VPS as root:
 
 #### 🌟 Stable Release (main branch)
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/baoweise-bot/aimili-vpngate/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/main/install.sh)
 ```
 
 > 💡 **Quick Note**: Once installed, copy the printed URL from the terminal to access the Web UI. Type the `ml` command in the terminal to summon the interactive CLI management console.
@@ -197,7 +201,7 @@ To prevent unauthorized scanning and abuse of the proxy port on the public inter
 
 #### 3. "API Domain Blocked" / Candidate nodes pool is empty (0 nodes)
 * **Reason**: The official VPNGate domain is blocked or DNS resolution failed on your VPS.
-* **Solution**: Add an HTTP/SOCKS5 upstream proxy in the settings panel (Admin -> Proxy Settings), or configure public DNS in `/etc/resolv.conf` (e.g., `nameserver 8.8.8.8`).
+* **Solution**: Add an HTTP/SOCKS5 upstream proxy in the settings panel (Admin -> Proxy Settings), or fix system DNS through your distribution-supported path such as `resolvectl dns`, netplan, NetworkManager, or your cloud provider console. Avoid treating direct edits to `/etc/resolv.conf` as the default fix because it is often managed by systemd-resolved.
 
 ---
 

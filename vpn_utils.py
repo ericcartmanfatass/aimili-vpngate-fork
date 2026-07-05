@@ -311,7 +311,7 @@ def ping_latency_ms(host: str, port: int, fallback_ping: int = 0) -> int:
 def check_and_fix_dns() -> None:
     """
     Checks if DNS resolution is broken.
-    If names fail but direct IP connections work, appends public DNS nameservers to /etc/resolv.conf.
+    If names fail but direct IP connections work, prints a diagnostic hint.
     Supports both IPv4 and IPv6 network environments.
     """
     try:
@@ -348,16 +348,12 @@ def check_and_fix_dns() -> None:
     if not network_ok:
         return
 
-    resolv_file = Path("/etc/resolv.conf")
-    if resolv_file.exists():
-        try:
-            content = resolv_file.read_text(encoding="utf-8", errors="replace")
-            if "nameserver 1.1.1.1" not in content and "nameserver 8.8.8.8" not in content:
-                print("[dns_heal] Resolving names failed, but IP network is OK. Appending public DNS to /etc/resolv.conf...", flush=True)
-                with open("/etc/resolv.conf", "a", encoding="utf-8") as f:
-                    f.write("\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n")
-        except Exception as e:
-            print(f"[dns_heal] Failed to write DNS fallback: {e}", flush=True)
+    print(
+        "[dns_heal] Resolving names failed, but IP network is OK. "
+        "Please fix system DNS via your OS resolver configuration; "
+        "AimiliVPN will not modify /etc/resolv.conf at runtime.",
+        flush=True,
+    )
 
 def load_ip_cache() -> dict[str, dict[str, Any]]:
     with ip_cache_lock:

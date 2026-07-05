@@ -7,7 +7,6 @@ vpngate_manager.build/
 vpngate_manager.dist/
 *.build/
 *.dist/
-aimilivpn
 
 # ---- Debian 打包产物 ----
 *.deb
@@ -29,6 +28,9 @@ logs/
 *.log
 *.tmp
 *.pid
+.env
+.env.*
+scamalytics_api.txt
 
 # ---- IDE 和编辑器 ----
 .vscode/
@@ -57,7 +59,7 @@ AimiliVPN_Analysis_ZH.md
 # ---- 临时和测试文件 ----
 scratch/
 *连接配置*
-test_*.py
+/test_*.py
 *.bak
 *.orig
 
