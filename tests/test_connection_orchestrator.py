@@ -49,11 +49,20 @@ class ConnectionOrchestratorTests(unittest.TestCase):
     def test_maintenance_flow_lives_in_connection_maintenance_module(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "aimilivpn" / "system" / "connection_orchestrator.py").read_text(encoding="utf-8")
 
-        self.assertIn("from aimilivpn.system import connection_maintenance", source)
+        self.assertIn("from aimilivpn.system import connection_connect, connection_maintenance, connection_switching", source)
         self.assertIn("connection_maintenance.maintain_valid_nodes(self, force)", source)
         self.assertNotIn("format_fetch_error_message", source)
         self.assertNotIn("maintenance_recovery_action", source)
         self.assertNotIn("from aimilivpn.core.maintenance import", source)
+
+    def test_connection_flows_live_in_dedicated_modules(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "aimilivpn" / "system" / "connection_orchestrator.py").read_text(encoding="utf-8")
+
+        self.assertIn("connection_switching.auto_switch_node(self, attempt)", source)
+        self.assertIn("connection_connect.connect_node(self, node_id)", source)
+        self.assertNotIn("from aimilivpn.core.connection import", source)
+        self.assertNotIn("from aimilivpn.core.nodes import", source)
+        self.assertNotIn("from aimilivpn.core.monitoring import", source)
 
     def build_orchestrator(
         self,
