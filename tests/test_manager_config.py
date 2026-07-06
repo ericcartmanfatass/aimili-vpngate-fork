@@ -10,12 +10,43 @@ from unittest.mock import patch
 from aimilivpn.system.manager_config import (
     apply_ui_config_overrides,
     bounded_int,
+    build_manager_runtime_environment,
     env_int,
     load_manager_runtime_config,
+    resolve_manager_root_dir,
 )
 
 
 class ManagerConfigTests(unittest.TestCase):
+    def test_resolve_manager_root_dir_uses_compiled_executable_parent(self) -> None:
+        root = resolve_manager_root_dir(
+            compiled=True,
+            executable=Path("dist") / "aimilivpn" / "manager.exe",
+        )
+
+        self.assertEqual(root, (Path("dist") / "aimilivpn").resolve())
+
+    def test_resolve_manager_root_dir_prefers_install_dir_then_cwd(self) -> None:
+        install_dir = Path("installed").resolve()
+
+        with patch.dict(os.environ, {"AIMILIVPN_INSTALL_DIR": str(install_dir)}, clear=True):
+            self.assertEqual(resolve_manager_root_dir(cwd=Path("ignored")), install_dir)
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(resolve_manager_root_dir(cwd=Path("runtime")), Path("runtime").resolve())
+
+    def test_build_manager_runtime_environment_groups_root_config_and_paths(self) -> None:
+        root = Path("runtime-root").resolve()
+        data_dir = Path("runtime-data").resolve()
+
+        with patch.dict(os.environ, {"VPNGATE_DATA_DIR": str(data_dir)}, clear=True):
+            environment = build_manager_runtime_environment(cwd=root)
+
+        self.assertEqual(environment.root_dir, root)
+        self.assertIs(environment.paths, environment.config.paths)
+        self.assertEqual(environment.config.root_dir, root)
+        self.assertEqual(environment.paths.data_dir, data_dir)
+
     def test_load_manager_runtime_config_reads_environment(self) -> None:
         root = Path("sample-root").resolve()
         data_dir = Path("sample-data").resolve()

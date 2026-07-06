@@ -1,129 +1,161 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable, Iterable
+import threading
+from typing import Callable, TypeVar
 
+from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository
+from aimilivpn.system.manager_auth import ManagerAuthRuntime
 from aimilivpn.system.manager_connection import ManagerConnectionRuntime
+from aimilivpn.system.manager_entry import ManagerEntryRuntime
+from aimilivpn.system.manager_fetch import ManagerFetchRuntime
+from aimilivpn.system.manager_logging import ManagerJsonLogRuntime
 from aimilivpn.system.manager_monitoring import ManagerMonitoringRuntime
+from aimilivpn.system.manager_node_probe import ManagerNodeProbeRuntime
+from aimilivpn.system.manager_node_view import ManagerNodeViewRuntime
+from aimilivpn.system.manager_openvpn import ManagerOpenVPNRuntime
+from aimilivpn.system.manager_proxy_health import ManagerProxyHealthRuntime
+from aimilivpn.system.manager_quality import ManagerQualityRuntime
+from aimilivpn.system.manager_repository import ManagerRepositoryRuntime
+from aimilivpn.system.manager_runtime_files import ManagerRuntimeFiles
+from aimilivpn.system.manager_runtime_state import ManagerRuntimeState
 from aimilivpn.system.manager_service import ManagerServiceRuntime
 from aimilivpn.system.manager_state import ManagerMutableState
-from aimilivpn.system.startup import DaemonTask
+from aimilivpn.system.manager_threads import ManagerThreadRuntime
+from aimilivpn.system.manager_ui import ManagerUiRuntime
+from aimilivpn.system.manager_web import ManagerWebRuntime
+from aimilivpn.system.manager_wiring_types import (
+    ConnectionRuntimeWiring,
+    EntryRuntimeWiring,
+    FetchRuntimeWiring,
+    JsonLogRuntimeWiring,
+    ManagerRepositories,
+    ManagerSharedState,
+    ManagerUiEndpoints,
+    MonitoringRuntimeWiring,
+    NodeProbeRuntimeWiring,
+    NodeViewRuntimeWiring,
+    OpenVPNRuntimeWiring,
+    ProxyHealthRuntimeWiring,
+    QualityRuntimeWiring,
+    RepositoryRuntimeWiring,
+    RuntimeFilesWiring,
+    RuntimeStateWiring,
+    ServiceRuntimeWiring,
+    ThreadRuntimeWiring,
+    UiRuntimeWiring,
+    WebManagerRuntimeWiring,
+)
+from aimilivpn.system.runtime_paths import RuntimePaths
+
+RuntimeT = TypeVar("RuntimeT")
 
 
-@dataclass(frozen=True)
-class ConnectionRuntimeWiring:
-    state: ManagerMutableState
-    lock: Any
-    cleanup_policy_routing: Callable[[], None]
-    read_nodes: Callable[[], list[dict[str, Any]]]
-    write_nodes: Callable[[list[dict[str, Any]]], None]
-    load_ui_config: Callable[[], dict[str, Any]]
-    save_ui_config: Callable[[dict[str, Any]], None]
-    stop_process: Callable[[Any], None]
-    kill_existing_openvpn_processes: Callable[[], None]
-    set_state: Callable[..., None]
-    run_locked: Callable[[Callable[[], Any]], Any]
-    log_vpn_line: Callable[[str, str], None]
-    log_line: Callable[[str, str, str], None]
-    print_line: Callable[[str], None]
-    ensure_dirs: Callable[[], None]
-    start_thread: Callable[[Callable[[], None]], None]
-    try_acquire_maintenance: Callable[[], bool]
-    release_maintenance: Callable[[], None]
-    node_matches_allowed: Callable[[dict[str, Any]], bool]
-    allowed_countries: Callable[[], set[str]]
-    filter_nodes_by_routing_region: Callable[[list[dict[str, Any]], str], list[dict[str, Any]]]
-    routing_target_label: Callable[[str], str]
-    parse_int: Callable[[Any], int]
-    ping_latency_ms: Callable[[str, int, int], int]
-    write_ovpn_config: Callable[[Path, str], None]
-    run_openvpn_until_ready: Callable[[str], tuple[bool, str, Any]]
-    setup_policy_routing: Callable[[str], None]
-    check_proxy_health: Callable[[], dict[str, Any]]
-    fetch_candidates: Callable[[], list[dict[str, Any]]]
-    check_and_fix_dns: Callable[[], None]
-    diagnose_api_failure: Callable[[str], tuple[Any, Any]]
-    select_maintenance_test_nodes: Callable[[list[dict[str, Any]]], list[str]]
-    test_multiple_nodes: Callable[[list[str]], list[dict[str, Any]]]
-    now: Callable[[], float]
-    api_url: Callable[[], str]
-    tun_dev: Callable[[], str]
-    proxy_host: Callable[[], str]
-    proxy_port: Callable[[], int]
-    maintenance_test_limit: Callable[[], int]
-    node_test_workers: Callable[[], int]
-    exclude_datacenter: Callable[[], bool]
+def build_repositories(paths: RuntimePaths) -> ManagerRepositories:
+    return ManagerRepositories(
+        node_repository=NodeRepository(paths.nodes_file),
+        region_repository=RegionRepository(paths.regions_file),
+        quality_repository=QualityRepository(paths.quality_results_file),
+    )
 
 
-@dataclass(frozen=True)
-class MonitoringRuntimeWiring:
-    state: ManagerMutableState
-    now: Callable[[], float]
-    sleep: Callable[[int | float], None]
-    print_line: Callable[[str], None]
-    log_line: Callable[[str, str, str], None]
-    set_state: Callable[..., None]
-    maintain_valid_nodes: Callable[[bool], str]
-    active_openvpn_running: Callable[[], bool]
-    check_interval_seconds: Callable[[], int]
-    check_proxy_health: Callable[[], dict[str, Any]]
-    is_connecting: Callable[[], bool]
-    set_is_connecting: Callable[[bool], None]
-    get_active_node_id: Callable[[], str]
-    load_ui_config: Callable[[], dict[str, Any]]
-    read_nodes: Callable[[], list[dict[str, Any]]]
-    write_nodes: Callable[[list[dict[str, Any]]], None]
-    run_locked: Callable[[Callable[[], Any]], Any]
-    mark_blacklisted: Callable[[dict[str, Any], str], None]
-    auto_switch_node: Callable[[], None]
-    connect_node: Callable[[str], str]
-    proxy_port: Callable[[], int]
-    ping_latency_ms: Callable[[str, int, int], int]
-    parse_int: Callable[[Any], int]
+def build_shared_state() -> ManagerSharedState:
+    mutable_state = ManagerMutableState()
+    return ManagerSharedState(
+        lock=threading.RLock(),
+        maintenance_lock=threading.Lock(),
+        mutable_state=mutable_state,
+        active_sessions=mutable_state.active_sessions,
+    )
 
 
-@dataclass(frozen=True)
-class ServiceRuntimeWiring:
-    ensure_dirs: Callable[[], None]
-    kill_existing_openvpn_processes: Callable[[], None]
-    data_dir: Callable[[], Path]
-    state_file: Callable[[], Path]
-    write_json: Callable[[Path, Any], None]
-    api_url: Callable[[], str]
-    instance_id: Callable[[], str]
-    tun_dev: Callable[[], str]
-    policy_table: Callable[[], str]
-    allowed_countries: Callable[[], set[str]]
-    target_valid_nodes: Callable[[], int]
-    fetch_interval_seconds: Callable[[], int]
-    check_interval_seconds: Callable[[], int]
-    local_proxy_host: Callable[[], str]
-    local_proxy_port: Callable[[], int]
-    ui_host: Callable[[], str]
-    ui_port: Callable[[], int]
-    start_proxy_server: Callable[[str, int, str], None]
-    collector_loop: Callable[[], None]
-    background_proxy_checker: Callable[[], None]
-    active_node_pinger: Callable[[], None]
-    start_daemon_threads: Callable[[Iterable[DaemonTask]], None]
-    wait_for_gateway: Callable[[str, int], bool]
-    load_ui_config: Callable[[], dict[str, Any]]
-    bounded_int: Callable[[Any, int, int, int], int]
-    web_server_runtime: Callable[[], Any]
-    serve_web_forever: Callable[[str, int, Any], None]
-    print_line: Callable[[str], None]
-    set_stdout: Callable[[Any], None]
-    set_stderr: Callable[[Any], None]
+def apply_saved_ui_overrides(
+    ui_runtime: ManagerUiRuntime,
+    ui_host: str,
+    ui_port: int,
+    local_proxy_port: int,
+) -> ManagerUiEndpoints:
+    try:
+        ui_host, ui_port, local_proxy_port = ui_runtime.apply_saved_overrides()
+    except Exception:
+        pass
+    return ManagerUiEndpoints(
+        ui_host=ui_host,
+        ui_port=ui_port,
+        local_proxy_port=local_proxy_port,
+    )
+
+
+def build_auth_runtime() -> ManagerAuthRuntime:
+    return ManagerAuthRuntime()
+
+
+def build_entry_runtime(wiring: EntryRuntimeWiring) -> ManagerEntryRuntime:
+    return _build_runtime(ManagerEntryRuntime, wiring)
+
+
+def _build_runtime(runtime_cls: Callable[..., RuntimeT], wiring: object) -> RuntimeT:
+    return runtime_cls(**vars(wiring))
 
 
 def build_connection_runtime(wiring: ConnectionRuntimeWiring) -> ManagerConnectionRuntime:
-    return ManagerConnectionRuntime(**vars(wiring))
+    return _build_runtime(ManagerConnectionRuntime, wiring)
+
+
+def build_repository_runtime(wiring: RepositoryRuntimeWiring) -> ManagerRepositoryRuntime:
+    return _build_runtime(ManagerRepositoryRuntime, wiring)
+
+
+def build_quality_runtime(wiring: QualityRuntimeWiring) -> ManagerQualityRuntime:
+    return _build_runtime(ManagerQualityRuntime, wiring)
+
+
+def build_fetch_runtime(wiring: FetchRuntimeWiring) -> ManagerFetchRuntime:
+    return _build_runtime(ManagerFetchRuntime, wiring)
+
+
+def build_ui_runtime(wiring: UiRuntimeWiring) -> ManagerUiRuntime:
+    return _build_runtime(ManagerUiRuntime, wiring)
+
+
+def build_runtime_state(wiring: RuntimeStateWiring) -> ManagerRuntimeState:
+    return _build_runtime(ManagerRuntimeState, wiring)
+
+
+def build_runtime_files(wiring: RuntimeFilesWiring) -> ManagerRuntimeFiles:
+    return _build_runtime(ManagerRuntimeFiles, wiring)
+
+
+def build_thread_runtime(wiring: ThreadRuntimeWiring) -> ManagerThreadRuntime:
+    return _build_runtime(ManagerThreadRuntime, wiring)
+
+
+def build_node_view_runtime(wiring: NodeViewRuntimeWiring) -> ManagerNodeViewRuntime:
+    return _build_runtime(ManagerNodeViewRuntime, wiring)
+
+
+def build_proxy_health_runtime(wiring: ProxyHealthRuntimeWiring) -> ManagerProxyHealthRuntime:
+    return _build_runtime(ManagerProxyHealthRuntime, wiring)
+
+
+def build_json_log_runtime(wiring: JsonLogRuntimeWiring) -> ManagerJsonLogRuntime:
+    return _build_runtime(ManagerJsonLogRuntime, wiring)
 
 
 def build_monitoring_runtime(wiring: MonitoringRuntimeWiring) -> ManagerMonitoringRuntime:
-    return ManagerMonitoringRuntime(**vars(wiring))
+    return _build_runtime(ManagerMonitoringRuntime, wiring)
 
 
 def build_service_runtime(wiring: ServiceRuntimeWiring) -> ManagerServiceRuntime:
-    return ManagerServiceRuntime(**vars(wiring))
+    return _build_runtime(ManagerServiceRuntime, wiring)
+
+
+def build_openvpn_runtime(wiring: OpenVPNRuntimeWiring) -> ManagerOpenVPNRuntime:
+    return _build_runtime(ManagerOpenVPNRuntime, wiring)
+
+
+def build_node_probe_runtime(wiring: NodeProbeRuntimeWiring) -> ManagerNodeProbeRuntime:
+    return _build_runtime(ManagerNodeProbeRuntime, wiring)
+
+
+def build_web_runtime(wiring: WebManagerRuntimeWiring) -> ManagerWebRuntime:
+    return _build_runtime(ManagerWebRuntime, wiring)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,18 @@ def bounded_int(value: Any, default: int, min_value: int | None = None, max_valu
     if max_value is not None and parsed > max_value:
         return default
     return parsed
+
+
+def resolve_manager_root_dir(
+    *,
+    compiled: bool = False,
+    install_dir: str | Path | None = None,
+    cwd: str | Path | None = None,
+    executable: str | Path | None = None,
+) -> Path:
+    if compiled:
+        return Path(executable or sys.executable).resolve().parent
+    return Path(install_dir or os.environ.get("AIMILIVPN_INSTALL_DIR") or cwd or Path.cwd()).resolve()
 
 
 def apply_ui_config_overrides(
@@ -79,6 +92,35 @@ class ManagerRuntimeConfig:
     allowed_countries: set[str]
     exclude_datacenter: bool
     allow_insecure_fetch: bool
+
+
+@dataclass(frozen=True)
+class ManagerRuntimeEnvironment:
+    root_dir: Path
+    config: ManagerRuntimeConfig
+
+    @property
+    def paths(self) -> RuntimePaths:
+        return self.config.paths
+
+
+def build_manager_runtime_environment(
+    *,
+    compiled: bool = False,
+    install_dir: str | Path | None = None,
+    cwd: str | Path | None = None,
+    executable: str | Path | None = None,
+) -> ManagerRuntimeEnvironment:
+    root_dir = resolve_manager_root_dir(
+        compiled=compiled,
+        install_dir=install_dir,
+        cwd=cwd,
+        executable=executable,
+    )
+    return ManagerRuntimeEnvironment(
+        root_dir=root_dir,
+        config=load_manager_runtime_config(root_dir),
+    )
 
 
 def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
