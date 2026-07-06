@@ -23,26 +23,34 @@ from aimilivpn.system.manager_state import ManagerMutableState
 from aimilivpn.system.manager_threads import ManagerThreadRuntime
 from aimilivpn.system.manager_ui import ManagerUiRuntime
 from aimilivpn.system.manager_web import ManagerWebRuntime
-from aimilivpn.system.manager_wiring_types import (
+from aimilivpn.system.manager_wiring_connection_types import (
     ConnectionRuntimeWiring,
-    EntryRuntimeWiring,
-    FetchRuntimeWiring,
-    JsonLogRuntimeWiring,
+    MonitoringRuntimeWiring,
+)
+from aimilivpn.system.manager_wiring_foundation_types import (
     ManagerRepositories,
     ManagerSharedState,
     ManagerUiEndpoints,
-    MonitoringRuntimeWiring,
-    NodeProbeRuntimeWiring,
-    NodeViewRuntimeWiring,
-    OpenVPNRuntimeWiring,
-    ProxyHealthRuntimeWiring,
     QualityRuntimeWiring,
     RepositoryRuntimeWiring,
     RuntimeFilesWiring,
     RuntimeStateWiring,
-    ServiceRuntimeWiring,
-    ThreadRuntimeWiring,
     UiRuntimeWiring,
+)
+from aimilivpn.system.manager_wiring_process_types import (
+    EntryRuntimeWiring,
+    NodeProbeRuntimeWiring,
+    OpenVPNRuntimeWiring,
+    ServiceRuntimeWiring,
+)
+from aimilivpn.system.manager_wiring_support_types import (
+    FetchRuntimeWiring,
+    JsonLogRuntimeWiring,
+    NodeViewRuntimeWiring,
+    ProxyHealthRuntimeWiring,
+    ThreadRuntimeWiring,
+)
+from aimilivpn.system.manager_wiring_web_types import (
     WebManagerRuntimeWiring,
 )
 from aimilivpn.system.runtime_paths import RuntimePaths

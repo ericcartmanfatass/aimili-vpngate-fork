@@ -105,6 +105,16 @@ class ManagerWiringTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertIsNone(re.search(pattern, source, flags=re.MULTILINE))
 
+    def test_manager_wiring_types_facade_stays_thin(self) -> None:
+        source = (REPO_ROOT / "aimilivpn" / "system" / "manager_wiring_types.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("@dataclass", source)
+        self.assertIn("manager_wiring_foundation_types", source)
+        self.assertIn("manager_wiring_support_types", source)
+        self.assertIn("manager_wiring_connection_types", source)
+        self.assertIn("manager_wiring_web_types", source)
+        self.assertIn("manager_wiring_process_types", source)
+
     def test_build_manager_runtime_context_uses_context_class(self) -> None:
         with patch(
             "aimilivpn.system.manager_runtime_context.ManagerRuntimeContext",
