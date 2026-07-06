@@ -46,6 +46,15 @@ class FakeConnectionRuntime:
 
 
 class ConnectionOrchestratorTests(unittest.TestCase):
+    def test_maintenance_flow_lives_in_connection_maintenance_module(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "aimilivpn" / "system" / "connection_orchestrator.py").read_text(encoding="utf-8")
+
+        self.assertIn("from aimilivpn.system import connection_maintenance", source)
+        self.assertIn("connection_maintenance.maintain_valid_nodes(self, force)", source)
+        self.assertNotIn("format_fetch_error_message", source)
+        self.assertNotIn("maintenance_recovery_action", source)
+        self.assertNotIn("from aimilivpn.core.maintenance import", source)
+
     def build_orchestrator(
         self,
         *,
