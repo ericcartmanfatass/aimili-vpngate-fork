@@ -12,6 +12,7 @@ from aimilivpn.core.logging_utils import redact_log_message
 from aimilivpn.core.models import QualityResult
 from aimilivpn.providers.scamalytics import ScamalyticsError
 from aimilivpn.system import manager_runtime_context_connection as context_connection
+from aimilivpn.system import manager_runtime_context_environment as context_environment
 from aimilivpn.system import manager_runtime_context_foundation as context_foundation
 from aimilivpn.system import manager_runtime_context_process as context_process
 from aimilivpn.system import manager_runtime_context_support as context_support
@@ -28,7 +29,7 @@ from aimilivpn.system.manager_callbacks import (
     set_stderr,
     set_stdout,
 )
-from aimilivpn.system.manager_config import bounded_int, build_manager_runtime_environment
+from aimilivpn.system.manager_config import bounded_int
 from aimilivpn.system.manager_helpers import parse_int, safe_name
 from aimilivpn.system.manager_web import default_index_html, default_login_html
 from aimilivpn.system.openvpn_status import update_handshake_status as update_openvpn_handshake_status
@@ -39,44 +40,7 @@ from aimilivpn.web.server import serve_web_forever
 
 class ManagerRuntimeContext:
     def __init__(self, *, compiled: bool = False) -> None:
-        self.environment = build_manager_runtime_environment(compiled=compiled)
-        self.root_dir = self.environment.root_dir
-        self.config = self.environment.config
-        self.api_url = self.config.api_url
-        self.fetch_interval_seconds = self.config.fetch_interval_seconds
-        self.check_interval_seconds = self.config.check_interval_seconds
-        self.target_valid_nodes = self.config.target_valid_nodes
-        self.max_scan_rows = self.config.max_scan_rows
-        self.openvpn_test_timeout_seconds = self.config.openvpn_test_timeout_seconds
-        self.openvpn_maintenance_test_timeout_seconds = self.config.openvpn_maintenance_test_timeout_seconds
-        self.node_test_workers = self.config.node_test_workers
-        self.max_maintenance_test_nodes = self.config.max_maintenance_test_nodes
-        self.node_retest_interval_seconds = self.config.node_retest_interval_seconds
-        self.openvpn_cmd = self.config.openvpn_cmd
-        self.openvpn_auth_user = self.config.openvpn_auth_user
-        self.openvpn_auth_pass = self.config.openvpn_auth_pass
-        self.local_proxy_host = self.config.local_proxy_host
-        self.local_proxy_port = self.config.local_proxy_port
-        self.ui_host = self.config.ui_host
-        self.ui_port = self.config.ui_port
-        self.invalid_backoff_seconds = self.config.invalid_backoff_seconds
-        self.instance_id = self.config.instance_id
-        self.tun_dev = self.config.tun_dev
-        self.policy_table = self.config.policy_table
-        self.allowed_countries = self.config.allowed_countries
-        self.exclude_datacenter = self.config.exclude_datacenter
-        self.allow_insecure_fetch = self.config.allow_insecure_fetch
-
-        self.runtime_paths = self.environment.paths
-        self.data_dir = self.runtime_paths.data_dir
-        self.config_dir = self.runtime_paths.config_dir
-        self.nodes_file = self.runtime_paths.nodes_file
-        self.state_file = self.runtime_paths.state_file
-        self.auth_file = self.runtime_paths.auth_file
-        self.upstream_proxy_auth_file_path = self.runtime_paths.upstream_proxy_auth_file
-        self.blacklist_file = self.runtime_paths.blacklist_file
-        self.regions_file = self.runtime_paths.regions_file
-        self.quality_results_file = self.runtime_paths.quality_results_file
+        context_environment.apply_runtime_environment(self, compiled=compiled)
 
         self._build_repository_runtime()
         self._build_quality_runtime()
