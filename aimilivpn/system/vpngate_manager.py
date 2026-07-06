@@ -14,47 +14,49 @@ from aimilivpn.system.socket_resolution import install_ipv4_preferred_getaddrinf
 install_ipv4_preferred_getaddrinfo()
 import vpn_utils
 from aimilivpn.core.models import QualityResult, RegionProfile
-from aimilivpn.core.auth import (
-    generate_session_token,
-    verify_password,
-    verify_username,
-)
 from aimilivpn.core.logging_utils import redact_log_message
-from aimilivpn.core.nodes import sort_nodes_for_display
-from aimilivpn.core import openvpn as openvpn_core
-from aimilivpn.core import proxy as proxy_core
 from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository
 from aimilivpn.providers.scamalytics import ScamalyticsError
+from aimilivpn.system.manager_auth import ManagerAuthRuntime
+from aimilivpn.system.manager_callbacks import (
+    console_token,
+    diagnose_with_host_keyword,
+    exit_process,
+    is_linux,
+    module_log_writer,
+    print_line,
+    set_stderr,
+    set_stdout,
+)
+from aimilivpn.system.manager_entry import ManagerEntryRuntime
 from aimilivpn.system.manager_fetch import ManagerFetchRuntime
 from aimilivpn.system.manager_connection import ManagerConnectionRuntime
 from aimilivpn.system.manager_logging import ManagerJsonLogRuntime
 from aimilivpn.system.manager_monitoring import ManagerMonitoringRuntime
+from aimilivpn.system.manager_node_view import ManagerNodeViewRuntime
 from aimilivpn.system.manager_node_probe import ManagerNodeProbeRuntime
 from aimilivpn.system.manager_openvpn import ManagerOpenVPNRuntime
+from aimilivpn.system.manager_proxy_health import ManagerProxyHealthRuntime
 from aimilivpn.system.openvpn_status import update_handshake_status as update_openvpn_handshake_status
 from aimilivpn.system import proxy_server
 from aimilivpn.system.manager_helpers import parse_int, safe_name
 from aimilivpn.system.manager_quality import ManagerQualityRuntime
 from aimilivpn.system.manager_repository import ManagerRepositoryRuntime
 from aimilivpn.system.manager_config import (
-    apply_ui_config_overrides,
     bounded_int,
-    env_int,
     load_manager_runtime_config,
 )
-from aimilivpn.system.runtime_paths import (
-    ensure_runtime_dirs,
-    write_upstream_proxy_auth_file,
-)
+from aimilivpn.system.manager_runtime_files import ManagerRuntimeFiles
 from aimilivpn.system.manager_service import ManagerServiceRuntime
 from aimilivpn.system.manager_state import ManagerMutableState
 from aimilivpn.system.manager_runtime_state import ManagerRuntimeState
+from aimilivpn.system.manager_threads import ManagerThreadRuntime
 from aimilivpn.system.startup import start_daemon_threads, wait_for_gateway
 from aimilivpn.system.manager_ui import ManagerUiRuntime
-from aimilivpn.system.manager_web import ManagerWebRuntime
+from aimilivpn.system.manager_web import ManagerWebRuntime, default_index_html, default_login_html
 from aimilivpn.web.api import quality_to_dict, region_to_dict
 from aimilivpn.web.context_factory import WebRouteContextFactory
-from aimilivpn.web.server import WebRequestHandler, WebServerRuntime, serve_web_forever
+from aimilivpn.web.server import WebServerRuntime, serve_web_forever
 
 if TYPE_CHECKING:
     from aimilivpn.providers.scamalytics import ScamalyticsProvider
@@ -135,6 +137,7 @@ lock = threading.RLock()
 maintenance_lock = threading.Lock()
 mutable_state = ManagerMutableState()
 active_sessions = mutable_state.active_sessions
+manager_auth_runtime = ManagerAuthRuntime()
 manager_ui_runtime = ManagerUiRuntime(
     data_dir=lambda: DATA_DIR,
     lock=lock,
@@ -159,16 +162,37 @@ manager_runtime_state = ManagerRuntimeState(
     local_proxy_host=lambda: LOCAL_PROXY_HOST,
     local_proxy_port=lambda: LOCAL_PROXY_PORT,
 )
+manager_runtime_files = ManagerRuntimeFiles(
+    paths=lambda: RUNTIME_PATHS,
+    auth_user=lambda: OPENVPN_AUTH_USER,
+    auth_pass=lambda: OPENVPN_AUTH_PASS,
+    get_upstream_proxy_auth=vpn_utils.get_upstream_proxy_auth,
+    print_line=print_line,
+)
+manager_thread_runtime = ManagerThreadRuntime(
+    lock=lock,
+    maintenance_lock=maintenance_lock,
+    maintain_valid_nodes=lambda force: maintain_valid_nodes(force),
+)
+manager_node_view_runtime = ManagerNodeViewRuntime(
+    allowed_countries=lambda: ALLOWED_COUNTRIES,
+    active_node_id=mutable_state.active_node_id,
+    parse_int=parse_int,
+)
+manager_proxy_health_runtime = ManagerProxyHealthRuntime(
+    proxy_host=lambda: LOCAL_PROXY_HOST,
+    proxy_port=lambda: LOCAL_PROXY_PORT,
+    tun_dev=lambda: TUN_DEV,
+    is_linux=is_linux,
+    get_proxy_credentials=proxy_server.get_proxy_credentials,
+    diagnose_local_obstructions=diagnose_with_host_keyword(vpn_utils.diagnose_local_obstructions),
+)
 
 def ensure_dirs() -> None:
-    ensure_runtime_dirs(RUNTIME_PATHS, OPENVPN_AUTH_USER, OPENVPN_AUTH_PASS)
+    manager_runtime_files.ensure_dirs()
 
 def upstream_proxy_auth_file() -> str | None:
-    return write_upstream_proxy_auth_file(
-        RUNTIME_PATHS,
-        vpn_utils.get_upstream_proxy_auth,
-        lambda message: print(message, flush=True),
-    )
+    return manager_runtime_files.upstream_proxy_auth_file()
 
 def write_json(path: Path, data: Any) -> None:
     manager_runtime_state.write_json(path, data)
@@ -194,17 +218,12 @@ def save_ui_config(config: dict[str, Any]) -> None:
 
 # 初始化时优先从 ui_auth.json 加载保存的代理出站端口和网页端口配置以覆盖环境变量
 try:
-    UI_HOST, UI_PORT, LOCAL_PROXY_PORT = apply_ui_config_overrides(
-        load_ui_config(),
-        UI_HOST,
-        UI_PORT,
-        LOCAL_PROXY_PORT,
-    )
+    UI_HOST, UI_PORT, LOCAL_PROXY_PORT = manager_ui_runtime.apply_saved_overrides()
 except Exception:
     pass
 
 def get_session_token(password: str, username: str = "admin") -> str:
-    return generate_session_token()
+    return manager_auth_runtime.get_session_token(password, username)
 
 json_log_runtime = ManagerJsonLogRuntime(
     data_dir=DATA_DIR,
@@ -313,20 +332,13 @@ def validate_routing_region_target(routing_mode: str, target: str) -> None:
     manager_repository_runtime.validate_routing_region_target(routing_mode, target)
 
 def node_matches_allowed_countries(node: dict[str, Any]) -> bool:
-    if not ALLOWED_COUNTRIES:
-        return True
-    country_short = str(node.get("country_short") or "").strip().upper()
-    if country_short in ALLOWED_COUNTRIES:
-        return True
-    node_id = str(node.get("id") or "").strip().upper()
-    return any(node_id.startswith(f"{country}_") for country in ALLOWED_COUNTRIES)
+    return manager_node_view_runtime.node_matches_allowed_countries(node)
 
 def get_state() -> dict[str, Any]:
     return manager_runtime_state.get_state()
 
 def run_with_lock(callback):
-    with lock:
-        return callback()
+    return manager_thread_runtime.run_with_lock(callback)
 
 def clear_active_connection_state(message: str) -> None:
     manager_connection_runtime.clear_active_connection_state(message)
@@ -353,15 +365,15 @@ def set_active_openvpn_connection(process: Any, node_id: str) -> None:
 
 
 def try_acquire_maintenance_lock() -> bool:
-    return maintenance_lock.acquire(blocking=False)
+    return manager_thread_runtime.try_acquire_maintenance_lock()
 
 
 def release_maintenance_lock() -> None:
-    maintenance_lock.release()
+    manager_thread_runtime.release_maintenance_lock()
 
 
 def start_background_thread(target: Any) -> None:
-    threading.Thread(target=target, daemon=True).start()
+    manager_thread_runtime.start_background_thread(target)
 
 def set_collector_heartbeat(value: float) -> None:
     manager_monitoring_runtime.set_collector_heartbeat(value)
@@ -383,9 +395,9 @@ manager_fetch_runtime = ManagerFetchRuntime(
     blacklist_file=BLACKLIST_FILE,
     lock=lock,
     invalid_backoff_seconds=INVALID_BACKOFF_SECONDS,
-    read_nodes=lambda: read_nodes(),
-    set_state=lambda **updates: set_state(**updates),
-    log_line=lambda level, message: log_to_json(level, "Main", message),
+    read_nodes=read_nodes,
+    set_state=set_state,
+    log_line=module_log_writer(log_to_json, "Main"),
     diagnose_api_failure=vpn_utils.diagnose_api_failure,
     get_upstream_proxy=vpn_utils.get_upstream_proxy,
     get_upstream_proxy_auth=vpn_utils.get_upstream_proxy_auth,
@@ -405,7 +417,7 @@ def fetch_api_text(url: str | None = None, use_ssl_verify: bool = True) -> str:
     return manager_fetch_runtime.fetch_api_text(url, use_ssl_verify)
 
 def write_ovpn_config(path: Path, config_text: str) -> None:
-    openvpn_core.write_ovpn_config(path, config_text)
+    manager_runtime_files.write_ovpn_config(path, config_text)
 
 def blacklist_store() -> BlacklistStore:
     return manager_fetch_runtime.blacklist_store()
@@ -426,28 +438,28 @@ manager_connection_runtime = ManagerConnectionRuntime(
     state=mutable_state,
     lock=lock,
     cleanup_policy_routing=lambda: cleanup_policy_routing(),
-    read_nodes=lambda: read_nodes(),
-    write_nodes=lambda nodes: write_nodes(nodes),
-    load_ui_config=lambda: load_ui_config(),
-    save_ui_config=lambda config: save_ui_config(config),
+    read_nodes=read_nodes,
+    write_nodes=write_nodes,
+    load_ui_config=load_ui_config,
+    save_ui_config=save_ui_config,
     stop_process=lambda process: stop_process(process),
     kill_existing_openvpn_processes=lambda: kill_existing_openvpn_processes(),
-    set_state=lambda **updates: set_state(**updates),
+    set_state=set_state,
     run_locked=run_with_lock,
-    log_vpn_line=lambda level, message: log_to_json(level, "VPN", message),
-    log_line=lambda level, module, message: log_to_json(level, module, message),
-    print_line=lambda message: print(message, flush=True),
-    ensure_dirs=lambda: ensure_dirs(),
+    log_vpn_line=module_log_writer(log_to_json, "VPN"),
+    log_line=log_to_json,
+    print_line=print_line,
+    ensure_dirs=ensure_dirs,
     start_thread=start_background_thread,
     try_acquire_maintenance=try_acquire_maintenance_lock,
     release_maintenance=release_maintenance_lock,
-    node_matches_allowed=lambda node: node_matches_allowed_countries(node),
+    node_matches_allowed=node_matches_allowed_countries,
     allowed_countries=lambda: ALLOWED_COUNTRIES,
-    filter_nodes_by_routing_region=lambda nodes, target: filter_nodes_by_routing_region(nodes, target),
-    routing_target_label=lambda target: routing_target_label(target),
+    filter_nodes_by_routing_region=filter_nodes_by_routing_region,
+    routing_target_label=routing_target_label,
     parse_int=parse_int,
-    ping_latency_ms=lambda host, port, fallback: vpn_utils.ping_latency_ms(host, port, fallback),
-    write_ovpn_config=lambda path, text: write_ovpn_config(path, text),
+    ping_latency_ms=vpn_utils.ping_latency_ms,
+    write_ovpn_config=write_ovpn_config,
     run_openvpn_until_ready=lambda config_file: run_openvpn_until_ready(
         config_file,
         keep_alive=True,
@@ -455,9 +467,9 @@ manager_connection_runtime = ManagerConnectionRuntime(
     ),
     setup_policy_routing=lambda interface: setup_policy_routing(interface),
     check_proxy_health=lambda: check_proxy_health(),
-    fetch_candidates=lambda: fetch_candidates(),
-    check_and_fix_dns=lambda: vpn_utils.check_and_fix_dns(),
-    diagnose_api_failure=lambda url: vpn_utils.diagnose_api_failure(url),
+    fetch_candidates=fetch_candidates,
+    check_and_fix_dns=vpn_utils.check_and_fix_dns,
+    diagnose_api_failure=vpn_utils.diagnose_api_failure,
     select_maintenance_test_nodes=lambda nodes: select_maintenance_test_nodes(nodes),
     test_multiple_nodes=lambda node_ids: test_multiple_nodes(node_ids),
     now=time.time,
@@ -474,9 +486,9 @@ manager_monitoring_runtime = ManagerMonitoringRuntime(
     state=mutable_state,
     now=time.time,
     sleep=time.sleep,
-    print_line=lambda message: print(message, flush=True),
-    log_line=lambda level, module, message: log_to_json(level, module, message),
-    set_state=lambda **updates: set_state(**updates),
+    print_line=print_line,
+    log_line=log_to_json,
+    set_state=set_state,
     maintain_valid_nodes=lambda force: maintain_valid_nodes(force),
     active_openvpn_running=lambda: active_openvpn_running(),
     check_interval_seconds=lambda: CHECK_INTERVAL_SECONDS,
@@ -484,80 +496,80 @@ manager_monitoring_runtime = ManagerMonitoringRuntime(
     is_connecting=get_is_connecting,
     set_is_connecting=set_is_connecting,
     get_active_node_id=get_active_openvpn_node_id,
-    load_ui_config=lambda: load_ui_config(),
-    read_nodes=lambda: read_nodes(),
-    write_nodes=lambda nodes: write_nodes(nodes),
+    load_ui_config=load_ui_config,
+    read_nodes=read_nodes,
+    write_nodes=write_nodes,
     run_locked=run_with_lock,
-    mark_blacklisted=lambda node, message: mark_blacklisted(node, message),
+    mark_blacklisted=mark_blacklisted,
     auto_switch_node=lambda: auto_switch_node(),
     connect_node=lambda node_id: connect_node(node_id),
     proxy_port=lambda: LOCAL_PROXY_PORT,
-    ping_latency_ms=lambda host, port, fallback: vpn_utils.ping_latency_ms(host, port, fallback),
+    ping_latency_ms=vpn_utils.ping_latency_ms,
     parse_int=parse_int,
 )
 
 manager_web_runtime = ManagerWebRuntime(
     region_repository=REGION_REPOSITORY,
-    read_regions=lambda: read_regions(),
-    read_nodes=lambda: read_nodes(),
-    region_from_payload=lambda payload, existing=None: region_from_payload(payload, existing),
-    quality_provider_status=lambda: quality_provider_status(),
-    latest_quality_for_node=lambda node_id: latest_quality_for_node(node_id),
-    latest_quality_map=lambda: latest_quality_map(),
+    read_regions=read_regions,
+    read_nodes=read_nodes,
+    region_from_payload=region_from_payload,
+    quality_provider_status=quality_provider_status,
+    latest_quality_for_node=latest_quality_for_node,
+    latest_quality_map=latest_quality_map,
     test_node_by_id=lambda node_id: test_node_by_id(node_id),
-    check_quality_ip=lambda ip: check_quality_ip(ip),
-    check_quality_region=lambda region_id, limit: check_quality_region(region_id, limit),
+    check_quality_ip=check_quality_ip,
+    check_quality_region=check_quality_region,
     bounded_int=bounded_int,
     scamalytics_errors=(ScamalyticsError,),
-    write_nodes=lambda nodes: write_nodes(nodes),
-    filter_nodes_by_region=lambda nodes, region_id: filter_nodes_by_region(nodes, region_id),
-    get_state=lambda: get_state(),
-    set_state=lambda **updates: set_state(**updates),
+    write_nodes=write_nodes,
+    filter_nodes_by_region=filter_nodes_by_region,
+    get_state=get_state,
+    set_state=set_state,
     get_active_node_id=lambda: context_active_node_id(),
     get_last_active_ping_time=lambda: get_last_active_ping_time(),
     set_last_active_ping_time=lambda value: set_last_active_ping_time(value),
     get_last_active_latency=lambda: get_last_active_latency(),
     set_last_active_latency=lambda value: set_last_active_latency(value),
     now=time.time,
-    ping_latency_ms=lambda host, port, fallback: vpn_utils.ping_latency_ms(host, port, fallback),
+    ping_latency_ms=vpn_utils.ping_latency_ms,
     parse_int=parse_int,
     start_daemon_thread=lambda target, args: start_daemon_thread(target, args),
     test_multiple_nodes=lambda nodes: test_multiple_nodes(nodes),
     connect_node=lambda node_id: connect_node(node_id),
     stop_active_openvpn=lambda: stop_active_openvpn(),
-    load_ui_config=lambda: load_ui_config(),
-    save_ui_config_unlocked=lambda config: save_ui_config(config),
+    load_ui_config=load_ui_config,
+    save_ui_config_unlocked=save_ui_config,
     maintain_valid_nodes=lambda force: maintain_valid_nodes(force),
     maintenance_running=maintenance_lock.locked,
     start_maintenance=lambda: start_maintenance_thread(),
-    validate_routing_region_target=lambda mode, target: validate_routing_region_target(mode, target),
-    verify_password=verify_password,
-    verify_username=verify_username,
-    generate_session_token=generate_session_token,
+    validate_routing_region_target=validate_routing_region_target,
+    verify_password=manager_auth_runtime.verify_password,
+    verify_username=manager_auth_runtime.verify_username,
+    generate_session_token=manager_auth_runtime.generate_session_token,
     check_proxy_health=lambda: check_proxy_health(),
     ui_host=lambda: UI_HOST,
     ui_port=lambda: UI_PORT,
     proxy_host=lambda: LOCAL_PROXY_HOST,
     proxy_port=lambda: LOCAL_PROXY_PORT,
     active_openvpn_running=lambda: active_openvpn_running(),
-    is_linux=lambda: sys.platform.startswith("linux"),
+    is_linux=is_linux,
     tun_dev=lambda: TUN_DEV,
     server_start_time=lambda: mutable_state.server_start_time,
     last_collector_heartbeat=lambda: mutable_state.last_collector_heartbeat,
     last_checker_heartbeat=lambda: mutable_state.last_checker_heartbeat,
     last_pinger_heartbeat=lambda: mutable_state.last_pinger_heartbeat,
     check_interval_seconds=lambda: CHECK_INTERVAL_SECONDS,
-    login_html_fallback=lambda: LOGIN_HTML,
-    index_html_fallback=lambda: INDEX_HTML,
+    login_html_fallback=default_login_html,
+    index_html_fallback=default_index_html,
     active_sessions=active_sessions,
     lock=lock,
     data_dir=lambda: DATA_DIR,
-    console_token=lambda: os.environ.get("INSTANCE_API_TOKEN", ""),
-    diagnose_local_obstructions=lambda port, host: vpn_utils.diagnose_local_obstructions(port, host=host),
+    console_token=console_token,
+    diagnose_local_obstructions=diagnose_with_host_keyword(vpn_utils.diagnose_local_obstructions),
     start_thread=start_background_thread,
     sleep=time.sleep,
-    exit_process=os._exit,
-    print_line=lambda message: print(message, flush=True),
+    exit_process=exit_process,
+    print_line=print_line,
 )
 
 manager_openvpn_runtime = ManagerOpenVPNRuntime(
@@ -574,9 +586,9 @@ manager_openvpn_runtime = ManagerOpenVPNRuntime(
     write_upstream_proxy_auth_file=upstream_proxy_auth_file,
     diagnose_openvpn_failure=vpn_utils.diagnose_openvpn_failure,
     status_callback=lambda line: update_handshake_status(line),
-    log_vpn_line=lambda level, message: log_to_json(level, "VPN", message),
-    log_routing_line=lambda level, message: log_to_json(level, "Routing", message),
-    print_line=lambda message: print(message, flush=True),
+    log_vpn_line=module_log_writer(log_to_json, "VPN"),
+    log_routing_line=module_log_writer(log_to_json, "Routing"),
+    print_line=print_line,
     sleep=time.sleep,
 )
 
@@ -608,9 +620,13 @@ manager_service_runtime = ManagerServiceRuntime(
     bounded_int=bounded_int,
     web_server_runtime=lambda: web_server_runtime(),
     serve_web_forever=serve_web_forever,
-    print_line=lambda message: print(message, flush=True),
-    set_stdout=lambda stream: setattr(sys, "stdout", stream),
-    set_stderr=lambda stream: setattr(sys, "stderr", stream),
+    print_line=print_line,
+    set_stdout=set_stdout,
+    set_stderr=set_stderr,
+)
+manager_entry_runtime = ManagerEntryRuntime(
+    service_runtime_factory=manager_service_runtime.runtime,
+    web_server_runtime=lambda: web_server_runtime(),
 )
 
 
@@ -676,32 +692,27 @@ def active_openvpn_running() -> bool:
     return manager_connection_runtime.active_openvpn_running()
 
 def sort_all_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sort_nodes_for_display(nodes, parse_int=parse_int)
+    return manager_node_view_runtime.sort_all_nodes(nodes)
 
 manager_node_probe_runtime = ManagerNodeProbeRuntime(
-    read_nodes=lambda: read_nodes(),
-    write_nodes=lambda nodes: write_nodes(nodes),
+    read_nodes=read_nodes,
+    write_nodes=write_nodes,
     run_locked=run_with_lock,
-    node_matches_allowed=lambda node: node_matches_allowed_countries(node),
+    node_matches_allowed=node_matches_allowed_countries,
     allowed_countries=lambda: ALLOWED_COUNTRIES,
     config_dir=lambda: CONFIG_DIR,
-    safe_name=lambda value: safe_name(value),
-    write_config=lambda path, text: write_ovpn_config(path, text),
-    ping_latency_ms=lambda host, port, fallback: vpn_utils.ping_latency_ms(host, port, fallback),
+    safe_name=safe_name,
+    write_config=write_ovpn_config,
+    ping_latency_ms=vpn_utils.ping_latency_ms,
     run_openvpn=lambda *args, **kwargs: run_openvpn_until_ready(*args, **kwargs),
     parse_int=parse_int,
-    enrich_ip_info=lambda nodes: vpn_utils.enrich_ip_info(nodes),
-    record_quality=lambda node, openvpn_success, latency_ms, message: record_quality_result_from_probe(
-        node,
-        openvpn_success,
-        latency_ms,
-        message,
-    ),
+    enrich_ip_info=vpn_utils.enrich_ip_info,
+    record_quality=record_quality_result_from_probe,
     sort_nodes=sort_all_nodes,
     now=time.time,
-    print_line=lambda message: print(message, flush=True),
-    load_ui_config=lambda: load_ui_config(),
-    filter_nodes_by_routing_region=lambda nodes, target: filter_nodes_by_routing_region(nodes, target),
+    print_line=print_line,
+    load_ui_config=load_ui_config,
+    filter_nodes_by_routing_region=filter_nodes_by_routing_region,
     retest_interval_seconds=lambda: NODE_RETEST_INTERVAL_SECONDS,
     max_maintenance_nodes=lambda: MAX_MAINTENANCE_TEST_NODES,
 )
@@ -740,19 +751,8 @@ def maintain_valid_nodes(force: bool = False) -> str:
 def collector_loop() -> None:
     manager_monitoring_runtime.collector_loop()
 
-LOGIN_HTML = """<!doctype html><html><body><h1>AimiliVPN Login</h1></body></html>"""
-
-INDEX_HTML = """<!doctype html><html><body><h1>AimiliVPN</h1></body></html>"""
-
 def check_proxy_health() -> dict[str, Any]:
-    return proxy_core.check_proxy_health(
-        proxy_host=LOCAL_PROXY_HOST,
-        proxy_port=LOCAL_PROXY_PORT,
-        tun_dev=TUN_DEV,
-        is_linux=sys.platform.startswith("linux"),
-        get_proxy_credentials=proxy_server.get_proxy_credentials,
-        diagnose_local_obstructions=lambda port, host: vpn_utils.diagnose_local_obstructions(port, host=host),
-    )
+    return manager_proxy_health_runtime.check_proxy_health()
 
 def background_proxy_checker() -> None:
     manager_monitoring_runtime.proxy_checker_loop()
@@ -762,7 +762,7 @@ def active_node_pinger() -> None:
 
 
 def context_active_node_id() -> str:
-    return mutable_state.active_node_id()
+    return manager_node_view_runtime.context_active_node_id()
 
 
 def get_last_active_ping_time() -> float:
@@ -782,11 +782,11 @@ def set_last_active_latency(value: int) -> None:
 
 
 def start_daemon_thread(target: Any, args: tuple[Any, ...]) -> None:
-    threading.Thread(target=target, args=args, daemon=True).start()
+    manager_thread_runtime.start_daemon_thread(target, args)
 
 
 def start_maintenance_thread() -> None:
-    threading.Thread(target=maintain_valid_nodes, args=(False,), daemon=True).start()
+    manager_thread_runtime.start_maintenance_thread()
 
 
 def clear_active_sessions() -> None:
@@ -819,16 +819,15 @@ def web_server_runtime() -> WebServerRuntime:
 
 
 def service_runtime() -> VpnGateServiceRuntime:
-    return manager_service_runtime.runtime()
-class Handler(WebRequestHandler):
-    @property
-    def runtime(self) -> WebServerRuntime:
-        return web_server_runtime()
+    return manager_entry_runtime.service_runtime()
+
+
+Handler = manager_entry_runtime.handler_class()
 
 
 
 def main() -> None:
-    manager_service_runtime.main()
+    manager_entry_runtime.main()
 
 if __name__ == "__main__":
     main()

@@ -53,6 +53,16 @@ class ManagerUiRuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.generate_random_password(), "password")
         self.assertEqual(runtime.generate_random_username(), "user")
 
+    def test_apply_saved_overrides_uses_loaded_config_and_current_defaults(self) -> None:
+        runtime = self.make_runtime()
+        runtime.override_applier = Mock(name="override_applier", return_value=("::", 8788, 7929))
+
+        with patch.object(runtime, "load", return_value={"host": "::"}):
+            result = runtime.apply_saved_overrides()
+
+        self.assertEqual(result, ("::", 8788, 7929))
+        runtime.override_applier.assert_called_once_with({"host": "::"}, "127.0.0.1", 8787, 7928)
+
 
 if __name__ == "__main__":
     unittest.main()

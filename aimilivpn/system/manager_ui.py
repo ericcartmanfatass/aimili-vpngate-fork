@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from aimilivpn.core.auth import generate_password
+from aimilivpn.system.manager_config import apply_ui_config_overrides
 from aimilivpn.system.ui_config import UiConfigStore, generate_username
 
 
@@ -18,6 +19,7 @@ class ManagerUiRuntime:
     bounded_int: Callable[[Any, int, int, int], int]
     password_factory: Callable[[], str] = generate_password
     username_factory: Callable[[], str] = generate_username
+    override_applier: Callable[[dict[str, Any], str, int, int], tuple[str, int, int]] = apply_ui_config_overrides
 
     def generate_random_password(self) -> str:
         return self.password_factory()
@@ -42,3 +44,11 @@ class ManagerUiRuntime:
 
     def save(self, config: dict[str, Any]) -> None:
         self.store().save(config)
+
+    def apply_saved_overrides(self) -> tuple[str, int, int]:
+        return self.override_applier(
+            self.load(),
+            self.ui_host(),
+            self.ui_port(),
+            self.proxy_port(),
+        )

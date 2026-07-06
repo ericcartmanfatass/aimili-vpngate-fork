@@ -10,6 +10,18 @@ from aimilivpn.web.context_factory import WebRouteContextFactory
 from aimilivpn.web.server import WebServerRuntime
 
 
+LOGIN_HTML_FALLBACK = """<!doctype html><html><body><h1>AimiliVPN Login</h1></body></html>"""
+INDEX_HTML_FALLBACK = """<!doctype html><html><body><h1>AimiliVPN</h1></body></html>"""
+
+
+def default_login_html() -> str:
+    return LOGIN_HTML_FALLBACK
+
+
+def default_index_html() -> str:
+    return INDEX_HTML_FALLBACK
+
+
 @dataclass
 class ManagerWebRuntime:
     region_repository: Any

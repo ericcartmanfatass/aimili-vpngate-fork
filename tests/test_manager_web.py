@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import RLock
 from unittest.mock import Mock, sentinel, patch
 
-from aimilivpn.system.manager_web import ManagerWebRuntime
+from aimilivpn.system.manager_web import ManagerWebRuntime, default_index_html, default_login_html
 
 
 class ManagerWebRuntimeTests(unittest.TestCase):
@@ -115,6 +115,10 @@ class ManagerWebRuntimeTests(unittest.TestCase):
         wiring.save_ui_config_locked.assert_called_once_with({"port": 8787})
         wiring.add_active_session.assert_called_once_with("token", 123.0)
         wiring.remove_active_session.assert_called_once_with("token")
+
+    def test_default_fallback_html(self) -> None:
+        self.assertIn("AimiliVPN Login", default_login_html())
+        self.assertIn("AimiliVPN", default_index_html())
 
 
 if __name__ == "__main__":
