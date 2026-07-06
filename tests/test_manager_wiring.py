@@ -115,6 +115,17 @@ class ManagerWiringTests(unittest.TestCase):
         self.assertIn("manager_wiring_web_types", source)
         self.assertIn("manager_wiring_process_types", source)
 
+    def test_manager_wiring_facade_stays_thin(self) -> None:
+        source = (REPO_ROOT / "aimilivpn" / "system" / "manager_wiring.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("def build_", source)
+        self.assertNotIn("NodeRepository", source)
+        self.assertIn("manager_wiring_factories_foundation", source)
+        self.assertIn("manager_wiring_factories_support", source)
+        self.assertIn("manager_wiring_factories_connection", source)
+        self.assertIn("manager_wiring_factories_web", source)
+        self.assertIn("manager_wiring_factories_process", source)
+
     def test_build_manager_runtime_context_uses_context_class(self) -> None:
         with patch(
             "aimilivpn.system.manager_runtime_context.ManagerRuntimeContext",
@@ -131,18 +142,19 @@ class ManagerWiringTests(unittest.TestCase):
             regions_file=Path("regions.json"),
             quality_results_file=Path("quality.json"),
         )
+        module = build_repositories.__module__
 
         with (
             patch(
-                "aimilivpn.system.manager_wiring.NodeRepository",
+                f"{module}.NodeRepository",
                 return_value=sentinel.node_repository,
             ) as node_cls,
             patch(
-                "aimilivpn.system.manager_wiring.RegionRepository",
+                f"{module}.RegionRepository",
                 return_value=sentinel.region_repository,
             ) as region_cls,
             patch(
-                "aimilivpn.system.manager_wiring.QualityRepository",
+                f"{module}.QualityRepository",
                 return_value=sentinel.quality_repository,
             ) as quality_cls,
         ):
@@ -163,7 +175,7 @@ class ManagerWiringTests(unittest.TestCase):
         self.assertTrue(hasattr(shared_state.maintenance_lock, "locked"))
 
     def test_build_auth_runtime_uses_default_auth_runtime(self) -> None:
-        with patch("aimilivpn.system.manager_wiring.ManagerAuthRuntime", return_value=sentinel.runtime) as runtime_cls:
+        with patch(f"{build_auth_runtime.__module__}.ManagerAuthRuntime", return_value=sentinel.runtime) as runtime_cls:
             runtime = build_auth_runtime()
 
         self.assertIs(runtime, sentinel.runtime)
@@ -197,7 +209,7 @@ class ManagerWiringTests(unittest.TestCase):
                 wiring = make_wiring(wiring_cls)
 
                 with patch(
-                    f"aimilivpn.system.manager_wiring.{runtime_name}",
+                    f"{build_runtime.__module__}.{runtime_name}",
                     return_value=sentinel.runtime,
                 ) as runtime_cls:
                     runtime = build_runtime(wiring)
