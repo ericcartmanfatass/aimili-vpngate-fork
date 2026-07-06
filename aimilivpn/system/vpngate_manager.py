@@ -30,9 +30,7 @@ from aimilivpn.system.manager_callbacks import (
 )
 from aimilivpn.system.manager_entry import ManagerEntryRuntime
 from aimilivpn.system.manager_fetch import ManagerFetchRuntime
-from aimilivpn.system.manager_connection import ManagerConnectionRuntime
 from aimilivpn.system.manager_logging import ManagerJsonLogRuntime
-from aimilivpn.system.manager_monitoring import ManagerMonitoringRuntime
 from aimilivpn.system.manager_node_view import ManagerNodeViewRuntime
 from aimilivpn.system.manager_node_probe import ManagerNodeProbeRuntime
 from aimilivpn.system.manager_openvpn import ManagerOpenVPNRuntime
@@ -47,13 +45,20 @@ from aimilivpn.system.manager_config import (
     load_manager_runtime_config,
 )
 from aimilivpn.system.manager_runtime_files import ManagerRuntimeFiles
-from aimilivpn.system.manager_service import ManagerServiceRuntime
 from aimilivpn.system.manager_state import ManagerMutableState
 from aimilivpn.system.manager_runtime_state import ManagerRuntimeState
 from aimilivpn.system.manager_threads import ManagerThreadRuntime
 from aimilivpn.system.startup import start_daemon_threads, wait_for_gateway
 from aimilivpn.system.manager_ui import ManagerUiRuntime
 from aimilivpn.system.manager_web import ManagerWebRuntime, default_index_html, default_login_html
+from aimilivpn.system.manager_wiring import (
+    ConnectionRuntimeWiring,
+    MonitoringRuntimeWiring,
+    ServiceRuntimeWiring,
+    build_connection_runtime,
+    build_monitoring_runtime,
+    build_service_runtime,
+)
 from aimilivpn.web.api import quality_to_dict, region_to_dict
 from aimilivpn.web.context_factory import WebRouteContextFactory
 from aimilivpn.web.server import WebServerRuntime, serve_web_forever
@@ -434,7 +439,7 @@ def fetch_candidates() -> list[dict[str, Any]]:
 def cached_nodes() -> list[dict[str, Any]]:
     return manager_fetch_runtime.cached_nodes()
 
-manager_connection_runtime = ManagerConnectionRuntime(
+manager_connection_runtime = build_connection_runtime(ConnectionRuntimeWiring(
     state=mutable_state,
     lock=lock,
     cleanup_policy_routing=lambda: cleanup_policy_routing(),
@@ -480,9 +485,9 @@ manager_connection_runtime = ManagerConnectionRuntime(
     maintenance_test_limit=lambda: MAX_MAINTENANCE_TEST_NODES,
     node_test_workers=lambda: NODE_TEST_WORKERS,
     exclude_datacenter=lambda: EXCLUDE_DATACENTER,
-)
+))
 
-manager_monitoring_runtime = ManagerMonitoringRuntime(
+manager_monitoring_runtime = build_monitoring_runtime(MonitoringRuntimeWiring(
     state=mutable_state,
     now=time.time,
     sleep=time.sleep,
@@ -506,7 +511,7 @@ manager_monitoring_runtime = ManagerMonitoringRuntime(
     proxy_port=lambda: LOCAL_PROXY_PORT,
     ping_latency_ms=vpn_utils.ping_latency_ms,
     parse_int=parse_int,
-)
+))
 
 manager_web_runtime = ManagerWebRuntime(
     region_repository=REGION_REPOSITORY,
@@ -592,7 +597,7 @@ manager_openvpn_runtime = ManagerOpenVPNRuntime(
     sleep=time.sleep,
 )
 
-manager_service_runtime = ManagerServiceRuntime(
+manager_service_runtime = build_service_runtime(ServiceRuntimeWiring(
     ensure_dirs=ensure_dirs,
     kill_existing_openvpn_processes=lambda: kill_existing_openvpn_processes(),
     data_dir=lambda: DATA_DIR,
@@ -623,7 +628,7 @@ manager_service_runtime = ManagerServiceRuntime(
     print_line=print_line,
     set_stdout=set_stdout,
     set_stderr=set_stderr,
-)
+))
 manager_entry_runtime = ManagerEntryRuntime(
     service_runtime_factory=manager_service_runtime.runtime,
     web_server_runtime=lambda: web_server_runtime(),
