@@ -41,6 +41,36 @@ class StaticAssetsTests(unittest.TestCase):
         self.assertIsNotNone(js)
         self.assertIn(b"let nodes", js or b"")
 
+    def test_default_static_app_helpers_js_exists(self) -> None:
+        js = get_static_asset("app_helpers.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"translateCountry", js or b"")
+
+    def test_default_static_app_quality_js_exists(self) -> None:
+        js = get_static_asset("app_quality.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"openQualityModal", js or b"")
+
+    def test_default_static_app_regions_js_exists(self) -> None:
+        js = get_static_asset("app_regions.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"openRegionsModal", js or b"")
+
+    def test_default_static_app_logs_js_exists(self) -> None:
+        js = get_static_asset("app_logs.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"openLogsModal", js or b"")
+
+    def test_default_static_app_gateway_js_exists(self) -> None:
+        js = get_static_asset("app_gateway.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"openGatewayModal", js or b"")
+
     def test_default_console_static_assets_exist(self) -> None:
         css = get_static_asset("console.css")
         js = get_static_asset("console.js")

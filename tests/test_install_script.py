@@ -75,6 +75,23 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn('"password_hash": hash_password(password)', text)
         self.assertNotIn('"password": password', text)
 
+    def test_install_generated_credentials_use_secrets(self) -> None:
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("import secrets", text)
+        self.assertIn("secrets.choice", text)
+        self.assertNotIn("import random", text)
+        self.assertNotIn("random.choices", text)
+
+    def test_sysctl_persistence_does_not_edit_sysctl_conf(self) -> None:
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("/etc/sysctl.d/99-aimilivpn.conf", text)
+        self.assertIn("sysctl -w net.ipv4.conf.all.rp_filter=2", text)
+        self.assertIn("leaving /etc/sysctl.conf untouched", text)
+        self.assertNotIn(">> /etc/sysctl.conf", text)
+        self.assertNotIn("sed -i 's/net.ipv4.conf", text)
+
     def test_systemd_units_use_low_risk_hardening(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
 

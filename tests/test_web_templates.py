@@ -58,7 +58,32 @@ class WebTemplateTests(unittest.TestCase):
     def test_index_template_references_external_script(self) -> None:
         index = get_index_html("fallback")
 
+        self.assertIn('src="./static/app_helpers.js"', index)
+        self.assertIn('src="./static/app_quality.js"', index)
+        self.assertIn('src="./static/app_regions.js"', index)
+        self.assertIn('src="./static/app_gateway.js"', index)
+        self.assertIn('src="./static/app_logs.js"', index)
         self.assertIn('src="./static/app.js"', index)
+        self.assertLess(
+            index.index('src="./static/app_helpers.js"'),
+            index.index('src="./static/app_quality.js"'),
+        )
+        self.assertLess(
+            index.index('src="./static/app_quality.js"'),
+            index.index('src="./static/app_regions.js"'),
+        )
+        self.assertLess(
+            index.index('src="./static/app_regions.js"'),
+            index.index('src="./static/app_gateway.js"'),
+        )
+        self.assertLess(
+            index.index('src="./static/app_gateway.js"'),
+            index.index('src="./static/app_logs.js"'),
+        )
+        self.assertLess(
+            index.index('src="./static/app_logs.js"'),
+            index.index('src="./static/app.js"'),
+        )
         self.assertNotIn("<script>\nlet nodes", index)
 
     def test_console_helpers_read_default_template_files(self) -> None:

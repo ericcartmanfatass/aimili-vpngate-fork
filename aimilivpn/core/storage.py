@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .models import QualityResult, RegionProfile, VpnNode, node_from_dict, node_to_dict
 from .regions import normalized_region
+
+
+class Store(Protocol):
+    def read(self, path: Path, default: Any) -> Any: ...
+    def write(self, path: Path, data: Any) -> None: ...
 
 
 class JsonStore:
@@ -37,8 +43,71 @@ class JsonStore:
                 pass
 
 
+class SqliteStore:
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+        self._lock = threading.RLock()
+
+    def read(self, path: Path, default: Any) -> Any:
+        with self._lock:
+            conn: sqlite3.Connection | None = None
+            try:
+                conn = self._connect()
+                row = conn.execute(
+                    "SELECT payload FROM json_documents WHERE document_key = ?",
+                    (self._document_key(path),),
+                ).fetchone()
+                if row is None:
+                    return default
+                return json.loads(str(row[0]))
+            except (OSError, sqlite3.DatabaseError, json.JSONDecodeError):
+                return default
+            finally:
+                if conn is not None:
+                    conn.close()
+
+    def write(self, path: Path, data: Any) -> None:
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        with self._lock:
+            conn: sqlite3.Connection | None = None
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                conn = self._connect()
+                conn.execute(
+                    """
+                    INSERT INTO json_documents(document_key, payload)
+                    VALUES(?, ?)
+                    ON CONFLICT(document_key) DO UPDATE SET payload = excluded.payload
+                    """,
+                    (self._document_key(path), payload),
+                )
+                conn.commit()
+            finally:
+                if conn is not None:
+                    conn.close()
+            try:
+                self.db_path.chmod(0o600)
+            except OSError:
+                pass
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS json_documents (
+                document_key TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        return conn
+
+    def _document_key(self, path: Path) -> str:
+        return str(path)
+
+
 class NodeRepository:
-    def __init__(self, path: Path, store: JsonStore | None = None) -> None:
+    def __init__(self, path: Path, store: Store | None = None) -> None:
         self.path = path
         self.store = store or JsonStore()
 
@@ -92,7 +161,7 @@ class NodeRepository:
 
 
 class RegionRepository:
-    def __init__(self, path: Path, store: JsonStore | None = None) -> None:
+    def __init__(self, path: Path, store: Store | None = None) -> None:
         self.path = path
         self.store = store or JsonStore()
 
@@ -132,7 +201,7 @@ class RegionRepository:
 
 
 class QualityRepository:
-    def __init__(self, path: Path, store: JsonStore | None = None) -> None:
+    def __init__(self, path: Path, store: Store | None = None) -> None:
         self.path = path
         self.store = store or JsonStore()
 
@@ -162,7 +231,7 @@ class QualityRepository:
 
 
 class SettingsRepository:
-    def __init__(self, path: Path, store: JsonStore | None = None) -> None:
+    def __init__(self, path: Path, store: Store | None = None) -> None:
         self.path = path
         self.store = store or JsonStore()
 

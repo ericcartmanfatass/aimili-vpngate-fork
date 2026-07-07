@@ -364,22 +364,22 @@ if [ ! -f "$AUTH_FILE" ]; then
     # Initialize defaults
     UI_PORT=8787
     # generate random secret suffix (12 chars alphanumeric)
-    SECRET_PATH=$(python3 -c "import random, string; print(''.join(random.choices(string.ascii_letters + string.digits, k=12)))")
+    SECRET_PATH=$(python3 -c "import secrets, string; chars = string.ascii_letters + string.digits; print(''.join(secrets.choice(chars) for _ in range(12)))")
     # generate random password
     UI_PASSWORD=$(python3 -c "
-import random, string
+import secrets, string
 chars = string.ascii_letters + string.digits
 while True:
-    pwd = ''.join(random.choices(chars, k=12))
+    pwd = ''.join(secrets.choice(chars) for _ in range(12))
     if any(c.islower() for c in pwd) and any(c.isupper() for c in pwd) and any(c.isdigit() for c in pwd):
         print(pwd)
         break
 ")
     UI_USERNAME=$(python3 -c "
-import random, string
+import secrets, string
 chars = string.ascii_letters + string.digits
 while True:
-    uname = ''.join(random.choices(chars, k=12))
+    uname = ''.join(secrets.choice(chars) for _ in range(12))
     if uname[0].isalpha() and any(c.islower() for c in uname) and any(c.isupper() for c in uname) and any(c.isdigit() for c in uname):
         print(uname)
         break
@@ -468,16 +468,9 @@ net.ipv4.conf.default.rp_filter = 2
 EOF
     sysctl -p /etc/sysctl.d/99-aimilivpn.conf >/dev/null 2>&1 || true
 else
-    # Fallback to appending to /etc/sysctl.conf
-    if ! grep -q "net.ipv4.conf.all.rp_filter" /etc/sysctl.conf; then
-        echo "" >> /etc/sysctl.conf
-        echo "net.ipv4.conf.all.rp_filter = 2" >> /etc/sysctl.conf
-        echo "net.ipv4.conf.default.rp_filter = 2" >> /etc/sysctl.conf
-    else
-        sed -i 's/net.ipv4.conf.all.rp_filter\s*=\s*[0-9]/net.ipv4.conf.all.rp_filter = 2/g' /etc/sysctl.conf
-        sed -i 's/net.ipv4.conf.default.rp_filter\s*=\s*[0-9]/net.ipv4.conf.default.rp_filter = 2/g' /etc/sysctl.conf
-    fi
-    sysctl -p >/dev/null 2>&1 || true
+    echo -e "${YELLOW}Warning: /etc/sysctl.d is unavailable; applying rp_filter for this boot only and leaving /etc/sysctl.conf untouched.${PLAIN}"
+    sysctl -w net.ipv4.conf.all.rp_filter=2 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.conf.default.rp_filter=2 >/dev/null 2>&1 || true
 fi
 
 if [ -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] || [ -f /lib/systemd/system/aimilivpn@.service ] || [ -f /usr/lib/systemd/system/aimilivpn@.service ]; then
