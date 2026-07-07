@@ -53,11 +53,23 @@ class StaticAssetsTests(unittest.TestCase):
         self.assertIsNotNone(js)
         self.assertIn(b"openQualityModal", js or b"")
 
+    def test_default_static_app_quality_render_js_exists(self) -> None:
+        js = get_static_asset("app_quality_render.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"qualityBadgeHtml", js or b"")
+
     def test_default_static_app_regions_js_exists(self) -> None:
         js = get_static_asset("app_regions.js")
 
         self.assertIsNotNone(js)
         self.assertIn(b"openRegionsModal", js or b"")
+
+    def test_default_static_app_regions_render_js_exists(self) -> None:
+        js = get_static_asset("app_regions_render.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"renderRegionsList", js or b"")
 
     def test_default_static_app_logs_js_exists(self) -> None:
         js = get_static_asset("app_logs.js")
@@ -75,13 +87,61 @@ class StaticAssetsTests(unittest.TestCase):
         js = get_static_asset("app_settings.js")
 
         self.assertIsNotNone(js)
+        self.assertIn(b"logoutAdmin", js or b"")
+
+    def test_default_static_app_credentials_js_exists(self) -> None:
+        js = get_static_asset("app_credentials.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"openCredentialsModal", js or b"")
+
+    def test_default_static_app_network_settings_js_exists(self) -> None:
+        js = get_static_asset("app_network_settings.js")
+
+        self.assertIsNotNone(js)
         self.assertIn(b"openNetworkModal", js or b"")
+
+    def test_default_static_app_routing_settings_js_exists(self) -> None:
+        js = get_static_asset("app_routing_settings.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"selectOptionCard", js or b"")
+
+    def test_default_static_app_favorites_js_exists(self) -> None:
+        js = get_static_asset("app_favorites.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"toggleFavoritesView", js or b"")
 
     def test_default_static_app_render_js_exists(self) -> None:
         js = get_static_asset("app_render.js")
 
         self.assertIsNotNone(js)
         self.assertIn(b"function render", js or b"")
+
+    def test_default_static_app_render_status_js_exists(self) -> None:
+        js = get_static_asset("app_render_status.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"renderActiveNodeCard", js or b"")
+
+    def test_default_static_app_node_table_js_exists(self) -> None:
+        js = get_static_asset("app_node_table.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"renderNodeRows", js or b"")
+
+    def test_default_static_app_actions_js_exists(self) -> None:
+        js = get_static_asset("app_actions.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"connectNode", js or b"")
+
+    def test_default_static_app_bootstrap_js_exists(self) -> None:
+        js = get_static_asset("app_bootstrap.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"setInterval", js or b"")
 
     def test_default_console_static_assets_exist(self) -> None:
         css = get_static_asset("console.css")
