@@ -92,6 +92,8 @@ class ManagerRuntimeConfig:
     allowed_countries: set[str]
     exclude_datacenter: bool
     allow_insecure_fetch: bool
+    storage_backend: str
+    sqlite_db_path: Path
 
 
 @dataclass(frozen=True)
@@ -125,15 +127,19 @@ def build_manager_runtime_environment(
 
 def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
     resolved_root = root_dir.resolve()
+    runtime_paths = build_runtime_paths(resolved_root, os.environ.get("VPNGATE_DATA_DIR"))
     target_valid_nodes = env_int("TARGET_VALID_NODES", 3, 1)
     allowed_countries = {
         item.strip()
         for item in os.environ.get("ALLOWED_COUNTRIES", "").strip().upper().split(",")
         if item.strip()
     }
+    sqlite_env = os.environ.get("SQLITE_DB_PATH")
+    sqlite_db_path = Path(sqlite_env).expanduser() if sqlite_env else runtime_paths.data_dir / "aimilivpn.db"
+    sqlite_db_path = sqlite_db_path if sqlite_db_path.is_absolute() else resolved_root / sqlite_db_path
     return ManagerRuntimeConfig(
         root_dir=resolved_root,
-        paths=build_runtime_paths(resolved_root, os.environ.get("VPNGATE_DATA_DIR")),
+        paths=runtime_paths,
         api_url="https://www.vpngate.net/api/iphone/",
         fetch_interval_seconds=env_int("FETCH_INTERVAL_SECONDS", 1260, 1),
         check_interval_seconds=env_int("CHECK_INTERVAL_SECONDS", 1260, 1),
@@ -158,4 +164,6 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
         allowed_countries=allowed_countries,
         exclude_datacenter=os.environ.get("EXCLUDE_DATACENTER", "0").strip().lower() in ("1", "true", "yes", "on"),
         allow_insecure_fetch=os.environ.get("ALLOW_INSECURE_FETCH", "0").strip().lower() in ("1", "true", "yes", "on"),
+        storage_backend=os.environ.get("STORAGE_BACKEND", "json").strip().lower() or "json",
+        sqlite_db_path=sqlite_db_path.resolve(),
     )

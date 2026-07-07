@@ -11,12 +11,23 @@ from aimilivpn.core.storage import (
     RegionRepository,
     SettingsRepository,
     SqliteStore,
+    build_store,
 )
 
 
 class StorageSqliteTests(unittest.TestCase):
     def build_store(self, tmp: str) -> SqliteStore:
         return SqliteStore(Path(tmp) / "aimilivpn.db")
+
+    def test_build_store_creates_sqlite_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = build_store("sqlite", sqlite_db_path=Path(tmp) / "aimilivpn.db")
+
+        self.assertIsInstance(store, SqliteStore)
+
+    def test_build_store_requires_sqlite_path(self) -> None:
+        with self.assertRaises(ValueError):
+            build_store("sqlite")
 
     def test_node_repository_uses_sqlite_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

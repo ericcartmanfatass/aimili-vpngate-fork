@@ -6,10 +6,17 @@ from pathlib import Path
 
 from aimilivpn.core.models import QualityResult, RegionProfile, VpnNode
 from aimilivpn.core.regions import InvalidRegion
-from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository, SettingsRepository
+from aimilivpn.core.storage import JsonStore, NodeRepository, QualityRepository, RegionRepository, SettingsRepository, build_store
 
 
 class StorageJsonTests(unittest.TestCase):
+    def test_build_store_defaults_to_json(self) -> None:
+        self.assertIsInstance(build_store(), JsonStore)
+
+    def test_build_store_rejects_unknown_backend(self) -> None:
+        with self.assertRaises(ValueError):
+            build_store("unknown")
+
     def test_node_repository_upsert_and_get(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = NodeRepository(Path(tmp) / "nodes.json")

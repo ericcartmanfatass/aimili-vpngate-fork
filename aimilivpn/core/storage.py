@@ -106,6 +106,17 @@ class SqliteStore:
         return str(path)
 
 
+def build_store(backend: str = "json", *, sqlite_db_path: Path | None = None) -> Store:
+    normalized = (backend or "json").strip().lower()
+    if normalized == "json":
+        return JsonStore()
+    if normalized == "sqlite":
+        if sqlite_db_path is None:
+            raise ValueError("sqlite_db_path is required for sqlite storage")
+        return SqliteStore(sqlite_db_path)
+    raise ValueError(f"unsupported storage backend: {backend}")
+
+
 class NodeRepository:
     def __init__(self, path: Path, store: Store | None = None) -> None:
         self.path = path

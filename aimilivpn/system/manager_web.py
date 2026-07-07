@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, MutableMapping
 
 from aimilivpn.core.models import QualityResult, RegionProfile
+from aimilivpn.system.manager_web_wiring import build_web_runtime_wiring
 from aimilivpn.system.web_runtime import WebRuntimeWiring
 from aimilivpn.web.context_factory import WebRouteContextFactory
 from aimilivpn.web.server import WebServerRuntime
@@ -89,69 +90,7 @@ class ManagerWebRuntime:
 
     def wiring(self) -> WebRuntimeWiring:
         if self._wiring is None:
-            self._wiring = WebRuntimeWiring(
-                region_repository=self.region_repository,
-                read_regions=self.read_regions,
-                read_nodes=self.read_nodes,
-                region_from_payload=self.region_from_payload,
-                quality_provider_status=self.quality_provider_status,
-                latest_quality_for_node=self.latest_quality_for_node,
-                latest_quality_map=self.latest_quality_map,
-                test_node_by_id=self.test_node_by_id,
-                check_quality_ip=self.check_quality_ip,
-                check_quality_region=self.check_quality_region,
-                bounded_int=self.bounded_int,
-                scamalytics_errors=self.scamalytics_errors,
-                write_nodes=self.write_nodes,
-                filter_nodes_by_region=self.filter_nodes_by_region,
-                get_state=self.get_state,
-                set_state=self.set_state,
-                get_active_node_id=self.get_active_node_id,
-                get_last_active_ping_time=self.get_last_active_ping_time,
-                set_last_active_ping_time=self.set_last_active_ping_time,
-                get_last_active_latency=self.get_last_active_latency,
-                set_last_active_latency=self.set_last_active_latency,
-                now=self.now,
-                ping_latency_ms=self.ping_latency_ms,
-                parse_int=self.parse_int,
-                start_daemon_thread=self.start_daemon_thread,
-                test_multiple_nodes=self.test_multiple_nodes,
-                connect_node=self.connect_node,
-                stop_active_openvpn=self.stop_active_openvpn,
-                load_ui_config=self.load_ui_config,
-                save_ui_config_unlocked=self.save_ui_config_unlocked,
-                maintain_valid_nodes=self.maintain_valid_nodes,
-                maintenance_running=self.maintenance_running,
-                start_maintenance=self.start_maintenance,
-                validate_routing_region_target=self.validate_routing_region_target,
-                verify_password=self.verify_password,
-                verify_username=self.verify_username,
-                generate_session_token=self.generate_session_token,
-                check_proxy_health=self.check_proxy_health,
-                ui_host=self.ui_host,
-                ui_port=self.ui_port,
-                proxy_host=self.proxy_host,
-                proxy_port=self.proxy_port,
-                active_openvpn_running=self.active_openvpn_running,
-                is_linux=self.is_linux,
-                tun_dev=self.tun_dev,
-                server_start_time=self.server_start_time,
-                last_collector_heartbeat=self.last_collector_heartbeat,
-                last_checker_heartbeat=self.last_checker_heartbeat,
-                last_pinger_heartbeat=self.last_pinger_heartbeat,
-                check_interval_seconds=self.check_interval_seconds,
-                login_html_fallback=self.login_html_fallback,
-                index_html_fallback=self.index_html_fallback,
-                active_sessions=self.active_sessions,
-                lock=self.lock,
-                data_dir=self.data_dir,
-                console_token=self.console_token,
-                diagnose_local_obstructions=self.diagnose_local_obstructions,
-                start_thread=self.start_thread,
-                sleep=self.sleep,
-                exit_process=self.exit_process,
-                print_line=self.print_line,
-            )
+            self._wiring = build_web_runtime_wiring(self)
         return self._wiring
 
     def clear_active_sessions(self) -> None:

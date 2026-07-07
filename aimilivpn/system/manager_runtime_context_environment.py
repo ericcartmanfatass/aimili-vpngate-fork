@@ -29,6 +29,8 @@ CONFIG_ATTRIBUTES = (
     "allowed_countries",
     "exclude_datacenter",
     "allow_insecure_fetch",
+    "storage_backend",
+    "sqlite_db_path",
 )
 
 PATH_ATTRIBUTES = (

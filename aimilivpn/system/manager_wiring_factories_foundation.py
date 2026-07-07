@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
-from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository
+from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository, build_store
 from aimilivpn.system.manager_auth import ManagerAuthRuntime
 from aimilivpn.system.manager_quality import ManagerQualityRuntime
 from aimilivpn.system.manager_repository import ManagerRepositoryRuntime
@@ -24,11 +25,20 @@ from aimilivpn.system.manager_wiring_foundation_types import (
 from aimilivpn.system.runtime_paths import RuntimePaths
 
 
-def build_repositories(paths: RuntimePaths) -> ManagerRepositories:
+def build_repositories(
+    paths: RuntimePaths,
+    *,
+    storage_backend: str = "json",
+    sqlite_db_path: Path | None = None,
+) -> ManagerRepositories:
+    store = None
+    if (storage_backend or "json").strip().lower() != "json":
+        store = build_store(storage_backend, sqlite_db_path=sqlite_db_path)
+    store_kwargs = {"store": store} if store is not None else {}
     return ManagerRepositories(
-        node_repository=NodeRepository(paths.nodes_file),
-        region_repository=RegionRepository(paths.regions_file),
-        quality_repository=QualityRepository(paths.quality_results_file),
+        node_repository=NodeRepository(paths.nodes_file, **store_kwargs),
+        region_repository=RegionRepository(paths.regions_file, **store_kwargs),
+        quality_repository=QualityRepository(paths.quality_results_file, **store_kwargs),
     )
 
 

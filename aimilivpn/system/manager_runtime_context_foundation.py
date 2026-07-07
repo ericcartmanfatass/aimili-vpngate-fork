@@ -7,7 +7,11 @@ from aimilivpn.system.manager_config import bounded_int
 
 
 def build_repository_runtime(ctx: object) -> None:
-    ctx.repositories = wiring.build_repositories(ctx.runtime_paths)
+    ctx.repositories = wiring.build_repositories(
+        ctx.runtime_paths,
+        storage_backend=ctx.storage_backend,
+        sqlite_db_path=ctx.sqlite_db_path,
+    )
     ctx.node_repository = ctx.repositories.node_repository
     ctx.region_repository = ctx.repositories.region_repository
     ctx.quality_repository = ctx.repositories.quality_repository

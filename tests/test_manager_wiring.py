@@ -167,6 +167,32 @@ class ManagerWiringTests(unittest.TestCase):
         region_cls.assert_called_once_with(Path("regions.json"))
         quality_cls.assert_called_once_with(Path("quality.json"))
 
+    def test_build_repositories_can_use_shared_sqlite_store(self) -> None:
+        paths = SimpleNamespace(
+            nodes_file=Path("nodes.json"),
+            regions_file=Path("regions.json"),
+            quality_results_file=Path("quality.json"),
+        )
+        module = build_repositories.__module__
+
+        with (
+            patch(f"{module}.build_store", return_value=sentinel.store) as build_store,
+            patch(f"{module}.NodeRepository", return_value=sentinel.node_repository) as node_cls,
+            patch(f"{module}.RegionRepository", return_value=sentinel.region_repository) as region_cls,
+            patch(f"{module}.QualityRepository", return_value=sentinel.quality_repository) as quality_cls,
+        ):
+            repositories = build_repositories(
+                paths,
+                storage_backend="sqlite",
+                sqlite_db_path=Path("aimilivpn.db"),
+            )
+
+        self.assertIs(repositories.node_repository, sentinel.node_repository)
+        build_store.assert_called_once_with("sqlite", sqlite_db_path=Path("aimilivpn.db"))
+        node_cls.assert_called_once_with(Path("nodes.json"), store=sentinel.store)
+        region_cls.assert_called_once_with(Path("regions.json"), store=sentinel.store)
+        quality_cls.assert_called_once_with(Path("quality.json"), store=sentinel.store)
+
     def test_build_shared_state_links_active_sessions_to_mutable_state(self) -> None:
         shared_state = build_shared_state()
 

@@ -6,6 +6,7 @@ from threading import RLock
 from unittest.mock import Mock, sentinel, patch
 
 from aimilivpn.system.manager_web import ManagerWebRuntime, default_index_html, default_login_html
+from aimilivpn.system.manager_web_wiring import build_web_runtime_wiring
 
 
 class ManagerWebRuntimeTests(unittest.TestCase):
@@ -77,19 +78,24 @@ class ManagerWebRuntimeTests(unittest.TestCase):
     def test_wiring_is_cached_and_wired(self) -> None:
         runtime = self.make_runtime()
 
-        with patch("aimilivpn.system.manager_web.WebRuntimeWiring", return_value=sentinel.wiring) as wiring_cls:
+        with patch("aimilivpn.system.manager_web.build_web_runtime_wiring", return_value=sentinel.wiring) as build:
             first = runtime.wiring()
             second = runtime.wiring()
 
         self.assertIs(first, sentinel.wiring)
         self.assertIs(second, sentinel.wiring)
-        wiring_cls.assert_called_once()
-        kwargs = wiring_cls.call_args.kwargs
-        self.assertIs(kwargs["region_repository"], sentinel.region_repository)
-        self.assertIs(kwargs["read_nodes"], runtime.read_nodes)
-        self.assertIs(kwargs["active_sessions"], runtime.active_sessions)
-        self.assertIs(kwargs["lock"], runtime.lock)
-        self.assertEqual(kwargs["scamalytics_errors"], (RuntimeError,))
+        build.assert_called_once_with(runtime)
+
+    def test_build_web_runtime_wiring_passes_runtime_fields(self) -> None:
+        runtime = self.make_runtime()
+
+        wiring = build_web_runtime_wiring(runtime)
+
+        self.assertIs(wiring.region_repository, sentinel.region_repository)
+        self.assertIs(wiring.read_nodes, runtime.read_nodes)
+        self.assertIs(wiring.active_sessions, runtime.active_sessions)
+        self.assertIs(wiring.lock, runtime.lock)
+        self.assertEqual(wiring.scamalytics_errors, (RuntimeError,))
 
     def test_wrappers_delegate_to_cached_wiring(self) -> None:
         runtime = self.make_runtime()

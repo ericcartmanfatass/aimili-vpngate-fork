@@ -74,6 +74,8 @@ class ManagerConfigTests(unittest.TestCase):
             "ALLOWED_COUNTRIES": "jp, us",
             "EXCLUDE_DATACENTER": "true",
             "ALLOW_INSECURE_FETCH": "1",
+            "STORAGE_BACKEND": "sqlite",
+            "SQLITE_DB_PATH": "data/aimilivpn.db",
         }
 
         with patch.dict(os.environ, env, clear=True):
@@ -98,6 +100,8 @@ class ManagerConfigTests(unittest.TestCase):
         self.assertEqual(config.allowed_countries, {"JP", "US"})
         self.assertTrue(config.exclude_datacenter)
         self.assertTrue(config.allow_insecure_fetch)
+        self.assertEqual(config.storage_backend, "sqlite")
+        self.assertEqual(config.sqlite_db_path, root / "data" / "aimilivpn.db")
 
     def test_env_int_and_bounded_int_apply_defaults(self) -> None:
         with patch.dict(os.environ, {"COUNT": "bad", "LOW": "0", "HIGH": "99"}, clear=True):
