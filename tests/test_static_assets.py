@@ -71,6 +71,18 @@ class StaticAssetsTests(unittest.TestCase):
         self.assertIsNotNone(js)
         self.assertIn(b"openGatewayModal", js or b"")
 
+    def test_default_static_app_settings_js_exists(self) -> None:
+        js = get_static_asset("app_settings.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"openNetworkModal", js or b"")
+
+    def test_default_static_app_render_js_exists(self) -> None:
+        js = get_static_asset("app_render.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"function render", js or b"")
+
     def test_default_console_static_assets_exist(self) -> None:
         css = get_static_asset("console.css")
         js = get_static_asset("console.js")

@@ -63,6 +63,8 @@ class WebTemplateTests(unittest.TestCase):
         self.assertIn('src="./static/app_regions.js"', index)
         self.assertIn('src="./static/app_gateway.js"', index)
         self.assertIn('src="./static/app_logs.js"', index)
+        self.assertIn('src="./static/app_settings.js"', index)
+        self.assertIn('src="./static/app_render.js"', index)
         self.assertIn('src="./static/app.js"', index)
         self.assertLess(
             index.index('src="./static/app_helpers.js"'),
@@ -82,6 +84,14 @@ class WebTemplateTests(unittest.TestCase):
         )
         self.assertLess(
             index.index('src="./static/app_logs.js"'),
+            index.index('src="./static/app_settings.js"'),
+        )
+        self.assertLess(
+            index.index('src="./static/app_settings.js"'),
+            index.index('src="./static/app_render.js"'),
+        )
+        self.assertLess(
+            index.index('src="./static/app_render.js"'),
             index.index('src="./static/app.js"'),
         )
         self.assertNotIn("<script>\nlet nodes", index)
