@@ -10,6 +10,7 @@ vpngate_manager.dist/
 
 # ---- Debian 打包产物 ----
 *.deb
+*.zip
 aimilivpn_*
 
 # ---- Python 缓存 ----
