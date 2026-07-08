@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +38,28 @@ class ConsoleConfigTests(unittest.TestCase):
             console_config.write_json(path, {"ok": True})
 
             self.assertEqual(console_config.read_json(path, {}), {"ok": True})
+
+    def test_console_config_defaults_blank_and_invalid_environment(self) -> None:
+        env = {
+            "AIMILIVPN_CONFIG_DIR": "   ",
+            "AIMILIVPN_INSTALL_DIR": "   ",
+            "AIMILIVPN_CONSOLE_AUTH": "   ",
+            "AIMILIVPN_INSTANCES_FILE": "   ",
+            "CONSOLE_HOST": "   ",
+            "CONSOLE_PORT": "bad",
+        }
+        try:
+            with patch.dict(os.environ, env, clear=True):
+                reloaded = importlib.reload(console_config)
+
+            self.assertEqual(reloaded.CONFIG_DIR, Path("/etc/aimilivpn"))
+            self.assertEqual(reloaded.INSTALL_DIR, Path("/opt/aimilivpn"))
+            self.assertEqual(reloaded.AUTH_FILE, Path("/etc/aimilivpn/console_auth.json"))
+            self.assertEqual(reloaded.INSTANCES_FILE, Path("/etc/aimilivpn/instances.json"))
+            self.assertEqual(reloaded.CONSOLE_HOST, "0.0.0.0")
+            self.assertEqual(reloaded.CONSOLE_PORT, 8788)
+        finally:
+            importlib.reload(console_config)
 
 
 class ConsoleInstanceTests(unittest.TestCase):
@@ -73,6 +97,39 @@ class ConsoleInstanceTests(unittest.TestCase):
             self.assertEqual(instances[0]["proxy_port"], 7928)
             self.assertEqual(instances[0]["secret_path"], "jpsecret")
 
+    def test_normalize_instance_defaults_blank_and_invalid_env_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env_file = root / "jp.env"
+            env_file.write_text(
+                "\n".join([
+                    "ALLOWED_COUNTRIES=   ",
+                    "VPNGATE_DATA_DIR=   ",
+                    "UI_HOST=   ",
+                    "LOCAL_PROXY_HOST=   ",
+                    "UI_PORT=bad",
+                    "LOCAL_PROXY_PORT=   ",
+                    "TUN_DEV= tun-jp ",
+                    "POLICY_TABLE= 100 ",
+                ]),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(console_instances, "CONFIG_DIR", root),
+                patch.object(console_instances, "INSTALL_DIR", root / "install"),
+            ):
+                instance = console_instances.normalize_instance({"id": "jp", "env_file": str(env_file)})
+
+        self.assertEqual(instance["country"], "JP")
+        self.assertEqual(instance["data_dir"], str(root / "install" / "data" / "jp"))
+        self.assertEqual(instance["ui_host"], "127.0.0.1")
+        self.assertEqual(instance["proxy_host"], "127.0.0.1")
+        self.assertEqual(instance["ui_port"], 0)
+        self.assertEqual(instance["proxy_port"], 0)
+        self.assertEqual(instance["tun_dev"], "tun-jp")
+        self.assertEqual(instance["policy_table"], "100")
+
     def test_instance_state_and_stripped_nodes_hide_openvpn_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp)
@@ -89,6 +146,7 @@ class ConsoleInstanceTests(unittest.TestCase):
                 "service": "aimilivpn@jp.service",
                 "data_dir": str(data_dir),
                 "ui_port": 8787,
+                "proxy_host": "127.0.0.1",
                 "proxy_port": 7928,
                 "tun_dev": "tun-jp",
                 "policy_table": "100",
@@ -99,7 +157,26 @@ class ConsoleInstanceTests(unittest.TestCase):
 
             self.assertTrue(state["service_active"])
             self.assertEqual(state["active_node"]["id"], "jp_1")
+            self.assertEqual(state["local_proxy"], "socks5://127.0.0.1:7928")
             self.assertNotIn("config_text", nodes["nodes"][0])
+
+    def test_instance_state_formats_ipv6_proxy_host(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            inst = {
+                "id": "jp",
+                "country": "JP",
+                "service": "aimilivpn@jp.service",
+                "data_dir": tmp,
+                "ui_port": 8787,
+                "proxy_host": "::1",
+                "proxy_port": 7928,
+                "tun_dev": "tun-jp",
+                "policy_table": "100",
+            }
+
+            state = console_instances.instance_state(inst, service_active=lambda service: True)
+
+        self.assertEqual(state["local_proxy"], "socks5://[::1]:7928")
 
 
 class ConsoleBackendTests(unittest.TestCase):

@@ -15,6 +15,7 @@ def build_repository_runtime(ctx: object) -> None:
     ctx.node_repository = ctx.repositories.node_repository
     ctx.region_repository = ctx.repositories.region_repository
     ctx.quality_repository = ctx.repositories.quality_repository
+    ctx.settings_repository = ctx.repositories.settings_repository
     ctx.manager_repository_runtime = wiring.build_repository_runtime(wiring.RepositoryRuntimeWiring(
         node_repository=ctx.node_repository,
         region_repository=ctx.region_repository,

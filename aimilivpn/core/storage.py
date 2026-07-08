@@ -70,7 +70,6 @@ class SqliteStore:
         payload = json.dumps(data, ensure_ascii=False, indent=2)
         with self._lock:
             conn: sqlite3.Connection | None = None
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 conn = self._connect()
                 conn.execute(
@@ -85,12 +84,9 @@ class SqliteStore:
             finally:
                 if conn is not None:
                     conn.close()
-            try:
-                self.db_path.chmod(0o600)
-            except OSError:
-                pass
 
     def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             """
@@ -100,6 +96,10 @@ class SqliteStore:
             )
             """
         )
+        try:
+            self.db_path.chmod(0o600)
+        except OSError:
+            pass
         return conn
 
     def _document_key(self, path: Path) -> str:

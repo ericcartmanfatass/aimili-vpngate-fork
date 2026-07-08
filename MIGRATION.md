@@ -52,6 +52,16 @@ ui_auth.json
 
 SQLite backend 尚未作为默认存储启用。迁移到 SQLite 前，应先备份上述 JSON 文件。
 
+实验性 SQLite backend 可通过环境变量启用:
+
+```bash
+export STORAGE_BACKEND=sqlite
+export SQLITE_DB_PATH=/opt/aimilivpn/data/aimilivpn.db
+```
+
+未设置时仍保持 JSON 默认存储。`STORAGE_BACKEND` 设置为不支持的值时，启动配置会回退到 `json`。
+当前实验性 SQLite backend 覆盖节点、地区、质量结果和 settings repository；`state.json`、`ui_auth.json`、认证文件和运行时临时文件仍保持 JSON/文本文件。
+
 ## ml 命令
 
 `/usr/bin/ml` 现在是薄 wrapper:

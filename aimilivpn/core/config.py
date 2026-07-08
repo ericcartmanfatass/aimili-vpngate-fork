@@ -7,8 +7,9 @@ from pathlib import Path
 
 def env_int(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
     raw = os.environ.get(name)
+    raw_text = raw.strip() if raw is not None else ""
     try:
-        value = int(raw) if raw not in (None, "") else default
+        value = int(raw_text) if raw_text else default
     except (TypeError, ValueError):
         return default
     if min_value is not None and value < min_value:
@@ -16,6 +17,18 @@ def env_int(name: str, default: int, min_value: int | None = None, max_value: in
     if max_value is not None and value > max_value:
         return default
     return value
+
+
+def env_text(name: str, default: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    return value or default
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = (os.environ.get(name) or "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -47,10 +60,27 @@ class AppConfig:
     def scamalytics_configured(self) -> bool:
         return bool(self.scamalytics_username and self.scamalytics_api_key)
 
+    @property
+    def blacklist_file(self) -> Path:
+        return self.data_dir / "blacklist.json"
+
+    @property
+    def regions_file(self) -> Path:
+        return self.data_dir / "regions.json"
+
+    @property
+    def quality_results_file(self) -> Path:
+        return self.data_dir / "quality_results.json"
+
+    @property
+    def settings_file(self) -> Path:
+        return self.data_dir / "settings.json"
+
 
 def load_config(root_dir: Path | None = None) -> AppConfig:
-    root = root_dir or Path.cwd()
-    data_dir = Path(os.environ["VPNGATE_DATA_DIR"]).resolve() if os.environ.get("VPNGATE_DATA_DIR") else root / "vpngate_data"
+    root = (root_dir or Path.cwd()).resolve()
+    data_dir_env = (os.environ.get("VPNGATE_DATA_DIR") or "").strip()
+    data_dir = Path(data_dir_env).resolve() if data_dir_env else root / "vpngate_data"
     allowed_countries = {
         item.strip().upper()
         for item in os.environ.get("ALLOWED_COUNTRIES", "").split(",")
@@ -62,21 +92,21 @@ def load_config(root_dir: Path | None = None) -> AppConfig:
         nodes_file=data_dir / "nodes.json",
         state_file=data_dir / "state.json",
         auth_file=data_dir / "vpngate_auth.txt",
-        local_proxy_host=os.environ.get("LOCAL_PROXY_HOST", "127.0.0.1"),
+        local_proxy_host=env_text("LOCAL_PROXY_HOST", "127.0.0.1"),
         local_proxy_port=env_int("LOCAL_PROXY_PORT", 7928, 1, 65535),
-        ui_host=os.environ.get("UI_HOST", "::"),
+        ui_host=env_text("UI_HOST", "::"),
         ui_port=env_int("UI_PORT", 8787, 1, 65535),
-        openvpn_cmd=os.environ.get("OPENVPN_CMD", "openvpn"),
+        openvpn_cmd=env_text("OPENVPN_CMD", "openvpn"),
         tun_dev=os.environ.get("TUN_DEV", "tun0").strip() or "tun0",
         policy_table=os.environ.get("POLICY_TABLE", "100").strip() or "100",
         allowed_countries=allowed_countries,
-        allow_insecure_fetch=os.environ.get("ALLOW_INSECURE_FETCH", "").strip().lower() in {"1", "true", "yes", "on"},
-        api_url=os.environ.get("VPNGATE_API_URL", "https://www.vpngate.net/api/iphone/"),
+        allow_insecure_fetch=env_bool("ALLOW_INSECURE_FETCH"),
+        api_url=env_text("VPNGATE_API_URL", "https://www.vpngate.net/api/iphone/"),
         max_scan_rows=env_int("MAX_SCAN_ROWS", 300, 1),
         scamalytics_username=os.environ.get("SCAMALYTICS_USERNAME", "").strip(),
         scamalytics_api_key=os.environ.get("SCAMALYTICS_API_KEY", "").strip(),
         scamalytics_timeout_seconds=env_int("SCAMALYTICS_TIMEOUT_SECONDS", 8, 1),
         scamalytics_cache_ttl_seconds=env_int("SCAMALYTICS_CACHE_TTL_SECONDS", 86400, 60),
         scamalytics_rate_limit_per_minute=env_int("SCAMALYTICS_RATE_LIMIT_PER_MINUTE", 30, 1),
-        scamalytics_api_url=os.environ.get("SCAMALYTICS_API_URL", "https://api11.scamalytics.com/{username}/").strip(),
+        scamalytics_api_url=env_text("SCAMALYTICS_API_URL", "https://api11.scamalytics.com/{username}/"),
     )

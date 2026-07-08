@@ -22,14 +22,38 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return env
 
 
+def _first_text(*values: Any, default: str = "") -> str:
+    for value in values:
+        text = str(value).strip() if value is not None else ""
+        if text:
+            return text
+    return default
+
+
+def _first_int(*values: Any, default: int = 0) -> int:
+    text = _first_text(*values)
+    if not text:
+        return default
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return default
+
+
+def _proxy_url(host: Any, port: Any) -> str:
+    host_text = _first_text(host, default="127.0.0.1")
+    host_part = f"[{host_text}]" if ":" in host_text and not host_text.startswith("[") else host_text
+    return f"socks5://{host_part}:{_first_int(port)}"
+
+
 def normalize_instance(item: dict[str, Any]) -> dict[str, Any]:
-    iid = str(item.get("id") or item.get("instance_id") or item.get("country") or "").lower()
-    env_file = Path(str(item.get("env_file") or CONFIG_DIR / f"{iid}.env"))
+    iid = _first_text(item.get("id"), item.get("instance_id"), item.get("country")).lower()
+    env_file = Path(_first_text(item.get("env_file"), default=str(CONFIG_DIR / f"{iid}.env")))
     env = parse_env_file(env_file)
-    country = str(item.get("country") or env.get("ALLOWED_COUNTRIES") or iid).upper()
-    data_dir = str(item.get("data_dir") or env.get("VPNGATE_DATA_DIR") or INSTALL_DIR / "data" / iid)
-    ui_port = int(item.get("ui_port") or env.get("UI_PORT") or 0)
-    proxy_port = int(item.get("proxy_port") or env.get("LOCAL_PROXY_PORT") or 0)
+    country = _first_text(item.get("country"), env.get("ALLOWED_COUNTRIES"), default=iid).upper()
+    data_dir = _first_text(item.get("data_dir"), env.get("VPNGATE_DATA_DIR"), default=str(INSTALL_DIR / "data" / iid))
+    ui_port = _first_int(item.get("ui_port"), env.get("UI_PORT"))
+    proxy_port = _first_int(item.get("proxy_port"), env.get("LOCAL_PROXY_PORT"))
     auth = read_json(Path(data_dir) / "ui_auth.json", {})
     secret = str(auth.get("secret_path") or "EJsW2EeBo9lY")
     return {
@@ -38,12 +62,12 @@ def normalize_instance(item: dict[str, Any]) -> dict[str, Any]:
         "service": str(item.get("service") or f"aimilivpn@{iid}.service"),
         "env_file": str(env_file),
         "data_dir": data_dir,
-        "ui_host": str(item.get("ui_host") or env.get("UI_HOST") or "127.0.0.1"),
+        "ui_host": _first_text(item.get("ui_host"), env.get("UI_HOST"), default="127.0.0.1"),
         "ui_port": ui_port,
-        "proxy_host": str(item.get("proxy_host") or env.get("LOCAL_PROXY_HOST") or "127.0.0.1"),
+        "proxy_host": _first_text(item.get("proxy_host"), env.get("LOCAL_PROXY_HOST"), default="127.0.0.1"),
         "proxy_port": proxy_port,
-        "tun_dev": str(item.get("tun_dev") or env.get("TUN_DEV") or ""),
-        "policy_table": str(item.get("policy_table") or env.get("POLICY_TABLE") or ""),
+        "tun_dev": _first_text(item.get("tun_dev"), env.get("TUN_DEV")),
+        "policy_table": _first_text(item.get("policy_table"), env.get("POLICY_TABLE")),
         "secret_path": secret,
     }
 
@@ -100,7 +124,7 @@ def instance_state(
         "proxy_port": inst["proxy_port"],
         "tun_dev": inst["tun_dev"],
         "policy_table": inst["policy_table"],
-        "local_proxy": f"socks5://127.0.0.1:{inst['proxy_port']}",
+        "local_proxy": _proxy_url(inst.get("proxy_host"), inst.get("proxy_port")),
         "state": state if isinstance(state, dict) else {},
         "active_node": active_node,
     }

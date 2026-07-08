@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository, build_store
+from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository, SettingsRepository, build_store
 from aimilivpn.system.manager_auth import ManagerAuthRuntime
 from aimilivpn.system.manager_quality import ManagerQualityRuntime
 from aimilivpn.system.manager_repository import ManagerRepositoryRuntime
@@ -39,6 +39,7 @@ def build_repositories(
         node_repository=NodeRepository(paths.nodes_file, **store_kwargs),
         region_repository=RegionRepository(paths.regions_file, **store_kwargs),
         quality_repository=QualityRepository(paths.quality_results_file, **store_kwargs),
+        settings_repository=SettingsRepository(paths.settings_file, **store_kwargs),
     )
 
 

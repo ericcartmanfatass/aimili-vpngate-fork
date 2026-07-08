@@ -43,6 +43,7 @@ PATH_ATTRIBUTES = (
     "blacklist_file",
     "regions_file",
     "quality_results_file",
+    "settings_file",
 )
 
 

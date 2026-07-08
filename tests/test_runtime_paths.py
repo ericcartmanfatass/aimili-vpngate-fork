@@ -21,6 +21,15 @@ class RuntimePathsTests(unittest.TestCase):
         self.assertEqual(paths.config_dir, Path(data).resolve() / "configs")
         self.assertEqual(paths.nodes_file, Path(data).resolve() / "nodes.json")
         self.assertEqual(paths.quality_results_file, Path(data).resolve() / "quality_results.json")
+        self.assertEqual(paths.settings_file, Path(data).resolve() / "settings.json")
+
+    def test_build_runtime_paths_treats_blank_data_dir_as_default(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            paths = build_runtime_paths(Path(root), "   ")
+
+        self.assertEqual(paths.data_dir, Path(root).resolve() / "vpngate_data")
+        self.assertEqual(paths.nodes_file, Path(root).resolve() / "vpngate_data" / "nodes.json")
+        self.assertEqual(paths.settings_file, Path(root).resolve() / "vpngate_data" / "settings.json")
 
     def test_ensure_runtime_dirs_creates_auth_file_once(self) -> None:
         with tempfile.TemporaryDirectory() as root:

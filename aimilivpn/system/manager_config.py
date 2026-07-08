@@ -11,8 +11,9 @@ from aimilivpn.system.runtime_paths import RuntimePaths, build_runtime_paths
 
 def env_int(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
     raw = os.environ.get(name)
+    raw_text = raw.strip() if raw is not None else ""
     try:
-        value = int(raw) if raw not in (None, "") else default
+        value = int(raw_text) if raw_text else default
     except (TypeError, ValueError):
         print(f"[配置警告] 环境变量 {name}={raw!r} 不是有效整数，使用默认值 {default}", flush=True)
         value = default
@@ -23,6 +24,18 @@ def env_int(name: str, default: int, min_value: int | None = None, max_value: in
         print(f"[配置警告] 环境变量 {name}={value} 大于允许值 {max_value}，使用默认值 {default}", flush=True)
         return default
     return value
+
+
+def env_text(name: str, default: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    return value or default
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = (os.environ.get(name) or "").strip().lower()
+    if not value:
+        return default
+    return value in ("1", "true", "yes", "on")
 
 
 def bounded_int(value: Any, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
@@ -37,6 +50,18 @@ def bounded_int(value: Any, default: int, min_value: int | None = None, max_valu
     return parsed
 
 
+def env_choice(name: str, default: str, allowed: set[str]) -> str:
+    raw = os.environ.get(name)
+    raw_text = (raw or "").strip()
+    if not raw_text:
+        return default
+    value = raw_text.lower()
+    if value in allowed:
+        return value
+    print(f"[配置警告] 环境变量 {name}={raw!r} 不是支持的值，使用默认值 {default}", flush=True)
+    return default
+
+
 def resolve_manager_root_dir(
     *,
     compiled: bool = False,
@@ -46,7 +71,9 @@ def resolve_manager_root_dir(
 ) -> Path:
     if compiled:
         return Path(executable or sys.executable).resolve().parent
-    return Path(install_dir or os.environ.get("AIMILIVPN_INSTALL_DIR") or cwd or Path.cwd()).resolve()
+    explicit_install_dir = install_dir.strip() if isinstance(install_dir, str) else install_dir
+    env_install_dir = (os.environ.get("AIMILIVPN_INSTALL_DIR") or "").strip()
+    return Path(explicit_install_dir or env_install_dir or cwd or Path.cwd()).resolve()
 
 
 def apply_ui_config_overrides(
@@ -127,14 +154,15 @@ def build_manager_runtime_environment(
 
 def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
     resolved_root = root_dir.resolve()
-    runtime_paths = build_runtime_paths(resolved_root, os.environ.get("VPNGATE_DATA_DIR"))
+    data_dir_env = (os.environ.get("VPNGATE_DATA_DIR") or "").strip() or None
+    runtime_paths = build_runtime_paths(resolved_root, data_dir_env)
     target_valid_nodes = env_int("TARGET_VALID_NODES", 3, 1)
     allowed_countries = {
         item.strip()
         for item in os.environ.get("ALLOWED_COUNTRIES", "").strip().upper().split(",")
         if item.strip()
     }
-    sqlite_env = os.environ.get("SQLITE_DB_PATH")
+    sqlite_env = (os.environ.get("SQLITE_DB_PATH") or "").strip()
     sqlite_db_path = Path(sqlite_env).expanduser() if sqlite_env else runtime_paths.data_dir / "aimilivpn.db"
     sqlite_db_path = sqlite_db_path if sqlite_db_path.is_absolute() else resolved_root / sqlite_db_path
     return ManagerRuntimeConfig(
@@ -150,20 +178,20 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
         node_test_workers=env_int("NODE_TEST_WORKERS", 2, 1, 10),
         max_maintenance_test_nodes=env_int("MAX_MAINTENANCE_TEST_NODES", max(18, target_valid_nodes * 6), 1),
         node_retest_interval_seconds=env_int("NODE_RETEST_INTERVAL_SECONDS", 6 * 3600, 60),
-        openvpn_cmd=os.environ.get("OPENVPN_CMD", "openvpn"),
+        openvpn_cmd=env_text("OPENVPN_CMD", "openvpn"),
         openvpn_auth_user=os.environ.get("OPENVPN_AUTH_USER", "vpn"),
         openvpn_auth_pass=os.environ.get("OPENVPN_AUTH_PASS", "vpn"),
-        local_proxy_host=os.environ.get("LOCAL_PROXY_HOST", "127.0.0.1"),
+        local_proxy_host=env_text("LOCAL_PROXY_HOST", "127.0.0.1"),
         local_proxy_port=env_int("LOCAL_PROXY_PORT", 7928, 1, 65535),
-        ui_host=os.environ.get("UI_HOST", "::"),
+        ui_host=env_text("UI_HOST", "::"),
         ui_port=env_int("UI_PORT", 8787, 1, 65535),
         invalid_backoff_seconds=env_int("INVALID_BACKOFF_SECONDS", 30 * 60, 1),
         instance_id=os.environ.get("INSTANCE_ID", "default").strip().lower() or "default",
         tun_dev=os.environ.get("TUN_DEV", "tun0").strip() or "tun0",
         policy_table=os.environ.get("POLICY_TABLE", "100").strip() or "100",
         allowed_countries=allowed_countries,
-        exclude_datacenter=os.environ.get("EXCLUDE_DATACENTER", "0").strip().lower() in ("1", "true", "yes", "on"),
-        allow_insecure_fetch=os.environ.get("ALLOW_INSECURE_FETCH", "0").strip().lower() in ("1", "true", "yes", "on"),
-        storage_backend=os.environ.get("STORAGE_BACKEND", "json").strip().lower() or "json",
+        exclude_datacenter=env_bool("EXCLUDE_DATACENTER"),
+        allow_insecure_fetch=env_bool("ALLOW_INSECURE_FETCH"),
+        storage_backend=env_choice("STORAGE_BACKEND", "json", {"json", "sqlite"}),
         sqlite_db_path=sqlite_db_path.resolve(),
     )

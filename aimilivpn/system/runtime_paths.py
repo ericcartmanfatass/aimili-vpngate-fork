@@ -17,11 +17,13 @@ class RuntimePaths:
     blacklist_file: Path
     regions_file: Path
     quality_results_file: Path
+    settings_file: Path
 
 
 def build_runtime_paths(root_dir: Path, data_dir: str | None = None) -> RuntimePaths:
     resolved_root = root_dir.resolve()
-    resolved_data_dir = Path(data_dir).resolve() if data_dir else resolved_root / "vpngate_data"
+    normalized_data_dir = data_dir.strip() if data_dir else ""
+    resolved_data_dir = Path(normalized_data_dir).resolve() if normalized_data_dir else resolved_root / "vpngate_data"
     return RuntimePaths(
         root_dir=resolved_root,
         data_dir=resolved_data_dir,
@@ -33,6 +35,7 @@ def build_runtime_paths(root_dir: Path, data_dir: str | None = None) -> RuntimeP
         blacklist_file=resolved_data_dir / "blacklist.json",
         regions_file=resolved_data_dir / "regions.json",
         quality_results_file=resolved_data_dir / "quality_results.json",
+        settings_file=resolved_data_dir / "settings.json",
     )
 
 

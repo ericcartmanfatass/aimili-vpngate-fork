@@ -17,7 +17,11 @@ class ManagerCompatExportTests(unittest.TestCase):
 
         self.assertEqual(namespace["QualityResult"], "runtime:QualityResult")
         self.assertEqual(namespace["ROOT_DIR"], "context:root_dir")
+        self.assertEqual(namespace["STORAGE_BACKEND"], "context:storage_backend")
+        self.assertEqual(namespace["SQLITE_DB_PATH"], "context:sqlite_db_path")
         self.assertEqual(namespace["UPSTREAM_PROXY_AUTH_FILE"], "context:upstream_proxy_auth_file_path")
+        self.assertEqual(namespace["SETTINGS_FILE"], "context:settings_file")
+        self.assertEqual(namespace["SETTINGS_REPOSITORY"], "context:settings_repository")
         self.assertEqual(namespace["manager_web_runtime"], "context:manager_web_runtime")
 
     def test_bind_compat_callbacks_uses_current_namespace_functions(self) -> None:

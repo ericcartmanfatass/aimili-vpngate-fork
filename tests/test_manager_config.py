@@ -11,7 +11,10 @@ from aimilivpn.system.manager_config import (
     apply_ui_config_overrides,
     bounded_int,
     build_manager_runtime_environment,
+    env_bool,
+    env_choice,
     env_int,
+    env_text,
     load_manager_runtime_config,
     resolve_manager_root_dir,
 )
@@ -34,6 +37,12 @@ class ManagerConfigTests(unittest.TestCase):
 
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(resolve_manager_root_dir(cwd=Path("runtime")), Path("runtime").resolve())
+
+        with patch.dict(os.environ, {"AIMILIVPN_INSTALL_DIR": "   "}, clear=True):
+            self.assertEqual(resolve_manager_root_dir(cwd=Path("runtime")), Path("runtime").resolve())
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(resolve_manager_root_dir(install_dir="   ", cwd=Path("runtime")), Path("runtime").resolve())
 
     def test_build_manager_runtime_environment_groups_root_config_and_paths(self) -> None:
         root = Path("runtime-root").resolve()
@@ -103,16 +112,88 @@ class ManagerConfigTests(unittest.TestCase):
         self.assertEqual(config.storage_backend, "sqlite")
         self.assertEqual(config.sqlite_db_path, root / "data" / "aimilivpn.db")
 
+    def test_load_manager_runtime_config_defaults_invalid_storage_backend(self) -> None:
+        root = Path("sample-root").resolve()
+
+        with patch.dict(os.environ, {"STORAGE_BACKEND": "bad"}, clear=True):
+            with redirect_stdout(StringIO()):
+                config = load_manager_runtime_config(root)
+
+        self.assertEqual(config.storage_backend, "json")
+
+    def test_load_manager_runtime_config_defaults_blank_sqlite_path_to_data_dir(self) -> None:
+        root = Path("sample-root").resolve()
+        data_dir = Path("sample-data").resolve()
+
+        with patch.dict(os.environ, {"VPNGATE_DATA_DIR": str(data_dir), "SQLITE_DB_PATH": "   "}, clear=True):
+            config = load_manager_runtime_config(root)
+
+        self.assertEqual(config.sqlite_db_path, data_dir / "aimilivpn.db")
+
+    def test_load_manager_runtime_config_defaults_blank_data_dir(self) -> None:
+        root = Path("sample-root").resolve()
+
+        with patch.dict(os.environ, {"VPNGATE_DATA_DIR": "   "}, clear=True):
+            config = load_manager_runtime_config(root)
+
+        self.assertEqual(config.paths.data_dir, root / "vpngate_data")
+        self.assertEqual(config.sqlite_db_path, root / "vpngate_data" / "aimilivpn.db")
+
+    def test_load_manager_runtime_config_defaults_blank_runtime_strings(self) -> None:
+        root = Path("sample-root").resolve()
+        env = {
+            "OPENVPN_CMD": "   ",
+            "LOCAL_PROXY_HOST": "   ",
+            "UI_HOST": "   ",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_manager_runtime_config(root)
+
+        self.assertEqual(config.openvpn_cmd, "openvpn")
+        self.assertEqual(config.local_proxy_host, "127.0.0.1")
+        self.assertEqual(config.ui_host, "::")
+
     def test_env_int_and_bounded_int_apply_defaults(self) -> None:
-        with patch.dict(os.environ, {"COUNT": "bad", "LOW": "0", "HIGH": "99"}, clear=True):
+        with patch.dict(os.environ, {"COUNT": "bad", "LOW": "0", "HIGH": "99", "BLANK": "   ", "PADDED": " 5 "}, clear=True):
             with redirect_stdout(StringIO()):
                 self.assertEqual(env_int("COUNT", 7), 7)
                 self.assertEqual(env_int("LOW", 7, 1), 7)
                 self.assertEqual(env_int("HIGH", 7, None, 10), 7)
+                self.assertEqual(env_int("BLANK", 7), 7)
+                self.assertEqual(env_int("PADDED", 7), 5)
 
         self.assertEqual(bounded_int("5", 1, 1, 10), 5)
         self.assertEqual(bounded_int("0", 1, 1, 10), 1)
         self.assertEqual(bounded_int("bad", 1, 1, 10), 1)
+
+    def test_env_choice_applies_defaults(self) -> None:
+        with patch.dict(os.environ, {"BACKEND": "bad"}, clear=True):
+            with redirect_stdout(StringIO()):
+                self.assertEqual(env_choice("BACKEND", "json", {"json", "sqlite"}), "json")
+
+        with patch.dict(os.environ, {"BACKEND": "SQLITE"}, clear=True):
+            self.assertEqual(env_choice("BACKEND", "json", {"json", "sqlite"}), "sqlite")
+
+        with patch.dict(os.environ, {"BACKEND": "   "}, clear=True):
+            self.assertEqual(env_choice("BACKEND", "json", {"json", "sqlite"}), "json")
+
+    def test_env_text_strips_and_defaults_blank_values(self) -> None:
+        with patch.dict(os.environ, {"VALUE": "  configured  ", "BLANK": "   "}, clear=True):
+            self.assertEqual(env_text("VALUE", "default"), "configured")
+            self.assertEqual(env_text("BLANK", "default"), "default")
+            self.assertEqual(env_text("MISSING", "default"), "default")
+
+    def test_env_bool_applies_truthy_values_and_defaults(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"TRUE_VALUE": " yes ", "FALSE_VALUE": "0", "BLANK": "   "},
+            clear=True,
+        ):
+            self.assertTrue(env_bool("TRUE_VALUE"))
+            self.assertFalse(env_bool("FALSE_VALUE"))
+            self.assertTrue(env_bool("BLANK", default=True))
+            self.assertFalse(env_bool("MISSING"))
 
     def test_apply_ui_config_overrides_normalizes_ports(self) -> None:
         host, ui_port, proxy_port = apply_ui_config_overrides(

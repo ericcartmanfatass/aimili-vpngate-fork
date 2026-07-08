@@ -44,6 +44,44 @@ class ConfigTests(unittest.TestCase):
 
         self.assertFalse(config.scamalytics_configured)
 
+    def test_load_config_defaults_blank_runtime_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = {
+                "VPNGATE_DATA_DIR": "   ",
+                "LOCAL_PROXY_HOST": "   ",
+                "UI_HOST": "   ",
+                "OPENVPN_CMD": "   ",
+                "LOCAL_PROXY_PORT": " 9000 ",
+                "ALLOW_INSECURE_FETCH": " yes ",
+                "VPNGATE_API_URL": "   ",
+                "SCAMALYTICS_API_URL": "   ",
+            }
+            with patch.dict(os.environ, env, clear=True):
+                config = load_config(root)
+
+        self.assertEqual(config.data_dir, root / "vpngate_data")
+        self.assertEqual(config.local_proxy_host, "127.0.0.1")
+        self.assertEqual(config.ui_host, "::")
+        self.assertEqual(config.openvpn_cmd, "openvpn")
+        self.assertEqual(config.local_proxy_port, 9000)
+        self.assertTrue(config.allow_insecure_fetch)
+        self.assertEqual(config.api_url, "https://www.vpngate.net/api/iphone/")
+        self.assertEqual(config.scamalytics_api_url, "https://api11.scamalytics.com/{username}/")
+
+    def test_load_config_resolves_default_data_dir_from_root(self) -> None:
+        root = Path("relative-root")
+
+        with patch.dict(os.environ, {}, clear=True):
+            config = load_config(root)
+
+        self.assertEqual(config.data_dir, root.resolve() / "vpngate_data")
+        self.assertEqual(config.config_dir, root.resolve() / "vpngate_data" / "configs")
+        self.assertEqual(config.blacklist_file, root.resolve() / "vpngate_data" / "blacklist.json")
+        self.assertEqual(config.regions_file, root.resolve() / "vpngate_data" / "regions.json")
+        self.assertEqual(config.quality_results_file, root.resolve() / "vpngate_data" / "quality_results.json")
+        self.assertEqual(config.settings_file, root.resolve() / "vpngate_data" / "settings.json")
+
 
 if __name__ == "__main__":
     unittest.main()

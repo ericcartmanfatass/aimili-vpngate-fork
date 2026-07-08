@@ -93,7 +93,7 @@ class ManagerWiringTests(unittest.TestCase):
             "direct manager state construction": r"\bManagerRuntime(State|Files)\(",
             "direct mutable state construction": r"\bManagerMutableState\(",
             "direct thread lock construction": r"\bthreading\.(RLock|Lock)\(",
-            "direct repository construction": r"\b(NodeRepository|RegionRepository|QualityRepository)\(",
+            "direct repository construction": r"\b(NodeRepository|RegionRepository|QualityRepository|SettingsRepository)\(",
             "direct environment import": r"^import (os|sys)$",
             "direct wiring import": r"manager_wiring",
             "direct runtime wiring": r"\b[A-Za-z]+RuntimeWiring\(",
@@ -141,6 +141,7 @@ class ManagerWiringTests(unittest.TestCase):
             nodes_file=Path("nodes.json"),
             regions_file=Path("regions.json"),
             quality_results_file=Path("quality.json"),
+            settings_file=Path("settings.json"),
         )
         module = build_repositories.__module__
 
@@ -157,21 +158,28 @@ class ManagerWiringTests(unittest.TestCase):
                 f"{module}.QualityRepository",
                 return_value=sentinel.quality_repository,
             ) as quality_cls,
+            patch(
+                f"{module}.SettingsRepository",
+                return_value=sentinel.settings_repository,
+            ) as settings_cls,
         ):
             repositories = build_repositories(paths)
 
         self.assertIs(repositories.node_repository, sentinel.node_repository)
         self.assertIs(repositories.region_repository, sentinel.region_repository)
         self.assertIs(repositories.quality_repository, sentinel.quality_repository)
+        self.assertIs(repositories.settings_repository, sentinel.settings_repository)
         node_cls.assert_called_once_with(Path("nodes.json"))
         region_cls.assert_called_once_with(Path("regions.json"))
         quality_cls.assert_called_once_with(Path("quality.json"))
+        settings_cls.assert_called_once_with(Path("settings.json"))
 
     def test_build_repositories_can_use_shared_sqlite_store(self) -> None:
         paths = SimpleNamespace(
             nodes_file=Path("nodes.json"),
             regions_file=Path("regions.json"),
             quality_results_file=Path("quality.json"),
+            settings_file=Path("settings.json"),
         )
         module = build_repositories.__module__
 
@@ -180,6 +188,7 @@ class ManagerWiringTests(unittest.TestCase):
             patch(f"{module}.NodeRepository", return_value=sentinel.node_repository) as node_cls,
             patch(f"{module}.RegionRepository", return_value=sentinel.region_repository) as region_cls,
             patch(f"{module}.QualityRepository", return_value=sentinel.quality_repository) as quality_cls,
+            patch(f"{module}.SettingsRepository", return_value=sentinel.settings_repository) as settings_cls,
         ):
             repositories = build_repositories(
                 paths,
@@ -188,10 +197,12 @@ class ManagerWiringTests(unittest.TestCase):
             )
 
         self.assertIs(repositories.node_repository, sentinel.node_repository)
+        self.assertIs(repositories.settings_repository, sentinel.settings_repository)
         build_store.assert_called_once_with("sqlite", sqlite_db_path=Path("aimilivpn.db"))
         node_cls.assert_called_once_with(Path("nodes.json"), store=sentinel.store)
         region_cls.assert_called_once_with(Path("regions.json"), store=sentinel.store)
         quality_cls.assert_called_once_with(Path("quality.json"), store=sentinel.store)
+        settings_cls.assert_called_once_with(Path("settings.json"), store=sentinel.store)
 
     def test_build_shared_state_links_active_sessions_to_mutable_state(self) -> None:
         shared_state = build_shared_state()

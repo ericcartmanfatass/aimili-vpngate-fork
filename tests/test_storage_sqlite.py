@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aimilivpn.core.models import QualityResult, RegionProfile, VpnNode
 from aimilivpn.core.storage import (
@@ -24,6 +25,24 @@ class StorageSqliteTests(unittest.TestCase):
             store = build_store("sqlite", sqlite_db_path=Path(tmp) / "aimilivpn.db")
 
         self.assertIsInstance(store, SqliteStore)
+
+    def test_sqlite_store_creates_parent_directory_on_first_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = build_store("sqlite", sqlite_db_path=Path(tmp) / "nested" / "aimilivpn.db")
+
+            self.assertEqual(store.read(Path("nodes.json"), []), [])
+
+            self.assertTrue((Path(tmp) / "nested" / "aimilivpn.db").exists())
+
+    def test_sqlite_store_chmods_database_on_first_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "nested" / "aimilivpn.db"
+            store = build_store("sqlite", sqlite_db_path=db_path)
+
+            with patch.object(type(db_path), "chmod", autospec=True) as chmod:
+                store.read(Path("nodes.json"), [])
+
+            chmod.assert_any_call(db_path, 0o600)
 
     def test_build_store_requires_sqlite_path(self) -> None:
         with self.assertRaises(ValueError):
