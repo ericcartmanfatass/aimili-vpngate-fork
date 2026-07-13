@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 from aimilivpn.system.console_config import CONFIG_DIR, INSTALL_DIR, INSTANCES_FILE, read_json
+
+
+INSTANCE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def is_valid_instance_id(value: Any) -> bool:
+    return bool(INSTANCE_ID_PATTERN.fullmatch(str(value or "").strip().lower()))
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -48,7 +56,16 @@ def _proxy_url(host: Any, port: Any) -> str:
 
 def normalize_instance(item: dict[str, Any]) -> dict[str, Any]:
     iid = _first_text(item.get("id"), item.get("instance_id"), item.get("country")).lower()
-    env_file = Path(_first_text(item.get("env_file"), default=str(CONFIG_DIR / f"{iid}.env")))
+    if not is_valid_instance_id(iid):
+        raise ValueError("invalid instance id")
+    expected_env_file = (CONFIG_DIR / f"{iid}.env").resolve(strict=False)
+    env_file = Path(_first_text(item.get("env_file"), default=str(expected_env_file))).resolve(strict=False)
+    if env_file != expected_env_file:
+        raise ValueError("instance env file is outside the managed configuration")
+    expected_service = f"aimilivpn@{iid}.service"
+    service = _first_text(item.get("service"), default=expected_service)
+    if service != expected_service:
+        raise ValueError("instance service is not installer managed")
     env = parse_env_file(env_file)
     country = _first_text(item.get("country"), env.get("ALLOWED_COUNTRIES"), default=iid).upper()
     data_dir = _first_text(item.get("data_dir"), env.get("VPNGATE_DATA_DIR"), default=str(INSTALL_DIR / "data" / iid))
@@ -59,7 +76,7 @@ def normalize_instance(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": iid,
         "country": country,
-        "service": str(item.get("service") or f"aimilivpn@{iid}.service"),
+        "service": expected_service,
         "env_file": str(env_file),
         "data_dir": data_dir,
         "ui_host": _first_text(item.get("ui_host"), env.get("UI_HOST"), default="127.0.0.1"),
@@ -76,16 +93,29 @@ def load_instances() -> list[dict[str, Any]]:
     data = read_json(INSTANCES_FILE, {})
     raw_instances = data.get("instances") if isinstance(data, dict) else None
     if isinstance(raw_instances, list) and raw_instances:
-        return [normalize_instance(item) for item in raw_instances if isinstance(item, dict)]
+        instances = []
+        for item in raw_instances:
+            if not isinstance(item, dict):
+                continue
+            try:
+                instances.append(normalize_instance(item))
+            except ValueError as exc:
+                print(f"[console audit] rejected instance entry: {exc}", flush=True)
+        return instances
 
     instances = []
     for env_file in sorted(CONFIG_DIR.glob("*.env")):
         iid = env_file.stem.lower()
-        instances.append(normalize_instance({"id": iid, "env_file": str(env_file)}))
+        try:
+            instances.append(normalize_instance({"id": iid, "env_file": str(env_file)}))
+        except ValueError as exc:
+            print(f"[console audit] rejected instance entry: {exc}", flush=True)
     return instances
 
 
 def instance_by_id(instance_id: str) -> dict[str, Any] | None:
+    if not is_valid_instance_id(instance_id):
+        return None
     target = instance_id.lower()
     for inst in load_instances():
         if inst["id"] == target:

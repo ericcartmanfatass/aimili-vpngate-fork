@@ -8,6 +8,7 @@ from aimilivpn.web.proxy_trust import (
     is_loopback_host,
     management_http_notice,
     parse_trusted_proxy_addresses,
+    request_client_ip,
     request_uses_trusted_https,
 )
 
@@ -61,6 +62,29 @@ class ProxyTrustTests(unittest.TestCase):
                 trust_proxy_headers=True,
                 trusted_proxy_addresses=("127.0.0.1",),
             )
+        )
+
+    def test_client_ip_uses_forwarded_value_only_from_trusted_proxy(self) -> None:
+        trusted_request = request(peer="127.0.0.1")
+        trusted_request.headers["X-Forwarded-For"] = "198.51.100.9"
+        untrusted_request = request(peer="203.0.113.8")
+        untrusted_request.headers["X-Forwarded-For"] = "198.51.100.9"
+
+        self.assertEqual(
+            request_client_ip(
+                trusted_request,
+                trust_proxy_headers=True,
+                trusted_proxy_addresses=("127.0.0.1",),
+            ),
+            "198.51.100.9",
+        )
+        self.assertEqual(
+            request_client_ip(
+                untrusted_request,
+                trust_proxy_headers=True,
+                trusted_proxy_addresses=("127.0.0.1",),
+            ),
+            "203.0.113.8",
         )
 
     def test_plaintext_public_bind_gets_high_priority_warning(self) -> None:

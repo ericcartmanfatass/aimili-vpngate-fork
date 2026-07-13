@@ -64,6 +64,7 @@ class AuthSessionHelperTests(unittest.TestCase):
         self.assertFalse(is_session_authorized("session=old", sessions, 100.0))
         self.assertFalse(is_session_authorized("session=missing", sessions, 100.0))
         self.assertFalse(is_session_authorized("theme=dark", sessions, 100.0))
+        self.assertEqual(sessions, {"token-1": 110.0})
 
     def test_is_session_authorized_allows_trusted_request(self) -> None:
         self.assertTrue(is_session_authorized("", {}, 100.0, trusted=True))
@@ -708,6 +709,28 @@ class WebRoutesTests(unittest.TestCase):
         self.assertEqual(config["username"], "newadmin")
         self.assertEqual(context._test_cleared_sessions, [True])  # type: ignore[attr-defined]
         self.assertEqual(len(context._test_restarts), 1)  # type: ignore[attr-defined]
+
+    def test_update_credentials_revokes_sessions_on_secret_path_change(self) -> None:
+        config = {
+            "username": "admin",
+            "password_hash": "hash",
+            "port": 8787,
+            "secret_path": "oldpath",
+        }
+        context = build_config_context(config)
+        handler = FakeHandler({
+            "username": "admin",
+            "password": "",
+            "port": 8787,
+            "secret_path": "newpath",
+        })
+
+        handle_config_post(handler, "/api/update_credentials", context)
+
+        payload, status = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(payload["reauth_required"])
+        self.assertEqual(context._test_cleared_sessions, [True])  # type: ignore[attr-defined]
 
     def test_update_settings_rejects_invalid_region_target(self) -> None:
         config = {"port": 8787, "proxy_port": 7928}

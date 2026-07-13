@@ -46,12 +46,17 @@ authoritative release signal.
 
 - Authentication primitives and migration: `tests/test_auth.py`,
   `tests/test_console_modules.py`, and `tests/test_web_routes.py`.
-- Web request-body limits: `tests/test_http_utils.py`.
+- Web and Console request-body limits: `tests/test_http_utils.py` and
+  `tests/test_console_routes.py`.
 - Web authorization and session cookies: `tests/test_web_server.py` and
   `tests/test_web_routes.py`.
 - TLS proxy trust, loopback enforcement, and Console cookies:
   `tests/test_proxy_trust.py`, `tests/test_console_routes.py`, and
   `tests/test_console_server_wrapper.py`.
+- Console request timeout, bounded concurrency, login throttling, managed service
+  boundaries, and session revocation: `tests/test_console_routes.py`,
+  `tests/test_console_security.py`, `tests/test_console_server_wrapper.py`, and
+  `tests/test_console_modules.py`.
 - Console/Web listen defaults: `tests/test_console_modules.py`,
   `tests/test_ui_config.py`, and the stage-specific tests added with network
   hardening.

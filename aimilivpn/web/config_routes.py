@@ -42,7 +42,11 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             ui_cfg["port"] = new_port_int
             ui_cfg["secret_path"] = new_suffix
 
-            reauth_required = new_username != expected_username or bool(new_password)
+            reauth_required = (
+                new_username != expected_username
+                or bool(new_password)
+                or new_suffix != expected_suffix
+            )
             context.save_ui_config(ui_cfg)
             if reauth_required:
                 context.clear_sessions()

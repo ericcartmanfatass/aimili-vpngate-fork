@@ -69,6 +69,27 @@ def request_uses_trusted_https(
     return forwarded_proto.split(",", 1)[0].strip().lower() == "https"
 
 
+def request_client_ip(
+    handler: Any,
+    *,
+    trust_proxy_headers: bool,
+    trusted_proxy_addresses: Iterable[str],
+) -> str:
+    client_address = getattr(handler, "client_address", ())
+    peer = _normalized_ip(client_address[0] if client_address else "")
+    if not trust_proxy_headers:
+        return peer or "unknown"
+
+    trusted = {_normalized_ip(item) for item in trusted_proxy_addresses}
+    trusted.discard("")
+    if not peer or peer not in trusted or not is_loopback_host(peer):
+        return peer or "unknown"
+
+    forwarded_for = str(getattr(handler, "headers", {}).get("X-Forwarded-For", ""))
+    forwarded = _normalized_ip(forwarded_for.split(",", 1)[0])
+    return forwarded or peer
+
+
 def secure_cookie_suffix(handler: Any) -> str:
     checker = getattr(handler, "is_secure_request", None)
     return "; Secure" if callable(checker) and checker() else ""

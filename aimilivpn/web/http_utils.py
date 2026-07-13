@@ -5,6 +5,14 @@ from http import HTTPStatus
 from typing import Any
 
 
+class InvalidRequestBody(ValueError):
+    """The request body framing or payload is malformed."""
+
+
+class RequestBodyTooLarge(InvalidRequestBody):
+    """The declared request body exceeds the configured limit."""
+
+
 class HttpResponseMixin:
     def send_bytes(self, body: bytes, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         self.send_response(status)
@@ -24,10 +32,13 @@ class HttpResponseMixin:
     def read_request_body(self, max_bytes: int = 65536) -> bytes:
         length = _parse_content_length(self.headers.get("Content-Length"))
         if length < 0:
-            raise ValueError("Content-Length 无效")
+            raise InvalidRequestBody("invalid Content-Length")
         if length > max_bytes:
-            raise ValueError(f"请求体过大，最大允许 {max_bytes} 字节")
-        return self.rfile.read(length) if length > 0 else b""
+            raise RequestBodyTooLarge(f"request body exceeds {max_bytes} bytes")
+        body = self.rfile.read(length) if length > 0 else b""
+        if len(body) != length:
+            raise InvalidRequestBody("incomplete request body")
+        return body
 
     def read_json_body(self, max_bytes: int = 65536) -> dict[str, Any]:
         body = self.read_request_body(max_bytes)
@@ -35,7 +46,7 @@ class HttpResponseMixin:
             return {}
         data = json.loads(body.decode("utf-8"))
         if not isinstance(data, dict):
-            raise ValueError("请求 JSON 必须是对象")
+            raise InvalidRequestBody("request JSON must be an object")
         return data
 
 

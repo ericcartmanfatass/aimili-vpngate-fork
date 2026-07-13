@@ -29,9 +29,11 @@ sudo systemctl restart aimilivpn-console.service
 
 Proxy headers are ignored unless `AIMILIVPN_TRUST_PROXY_HEADERS=1`. Even when it
 is enabled, only explicitly listed loopback IP addresses are accepted; non-loopback
-entries are discarded. AimiliVPN only consumes `X-Forwarded-Proto` for deciding
-whether a session Cookie may carry `Secure`. It does not trust forwarded client
-addresses for authentication.
+entries are discarded. AimiliVPN consumes `X-Forwarded-Proto` only for deciding
+whether a session Cookie may carry `Secure`. The Console may consume the first
+`X-Forwarded-For` address for per-IP login rate limiting, but only from that same
+explicitly trusted loopback proxy; forwarded addresses are never used for
+authentication or authorization.
 
 ## Nginx example
 
@@ -51,6 +53,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
     }
 }
 ```

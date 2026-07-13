@@ -5,7 +5,7 @@ import json
 from http import HTTPStatus
 import unittest
 
-from aimilivpn.web.http_utils import HttpResponseMixin
+from aimilivpn.web.http_utils import HttpResponseMixin, InvalidRequestBody, RequestBodyTooLarge
 
 
 class FakeHttpHandler(HttpResponseMixin):
@@ -49,14 +49,20 @@ class HttpResponseMixinTests(unittest.TestCase):
     def test_read_request_body_rejects_invalid_length(self) -> None:
         handler = FakeHttpHandler(headers={"Content-Length": "abc"})
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(InvalidRequestBody):
             handler.read_request_body()
 
     def test_read_request_body_rejects_oversized_body(self) -> None:
         handler = FakeHttpHandler(b"abcde", {"Content-Length": "5"})
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(RequestBodyTooLarge):
             handler.read_request_body(max_bytes=4)
+
+    def test_read_request_body_rejects_truncated_body(self) -> None:
+        handler = FakeHttpHandler(b"abc", {"Content-Length": "5"})
+
+        with self.assertRaises(InvalidRequestBody):
+            handler.read_request_body()
 
     def test_read_json_body_rejects_non_object_json(self) -> None:
         handler = FakeHttpHandler(b"[1, 2]", {"Content-Length": "6"})

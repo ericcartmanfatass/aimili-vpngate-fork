@@ -180,6 +180,23 @@ class ConsoleInstanceTests(unittest.TestCase):
 
         self.assertEqual(state["local_proxy"], "socks5://[::1]:7928")
 
+    def test_normalize_instance_rejects_unmanaged_env_path_and_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            managed_env = root / "jp.env"
+            managed_env.write_text("UI_PORT=8787", encoding="utf-8")
+            with patch.object(console_instances, "CONFIG_DIR", root):
+                with self.assertRaisesRegex(ValueError, "managed configuration"):
+                    console_instances.normalize_instance({"id": "jp", "env_file": str(root / "other.env")})
+                with self.assertRaisesRegex(ValueError, "installer managed"):
+                    console_instances.normalize_instance(
+                        {"id": "jp", "env_file": str(managed_env), "service": "ssh.service"}
+                    )
+
+    def test_instance_by_id_rejects_invalid_id_without_loading_instances(self) -> None:
+        with patch.object(console_instances, "load_instances", side_effect=AssertionError("should not load")):
+            self.assertIsNone(console_instances.instance_by_id("../../ssh"))
+
 
 class ConsoleBackendTests(unittest.TestCase):
     def test_service_action_rejects_unknown_action_without_systemctl(self) -> None:
@@ -188,6 +205,31 @@ class ConsoleBackendTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "unsupported service action")
+
+    def test_service_action_rejects_unmanaged_or_mismatched_service(self) -> None:
+        with patch.object(console_backend, "systemctl", side_effect=AssertionError("should not run")):
+            unmanaged = console_backend.service_action("ssh.service", "restart", instance_id="jp")
+            mismatched = console_backend.service_action(
+                "aimilivpn@us.service", "restart", instance_id="jp"
+            )
+
+        self.assertEqual(unmanaged["error"], "service operation rejected")
+        self.assertEqual(mismatched["error"], "service operation rejected")
+
+    def test_service_action_does_not_echo_exception_details(self) -> None:
+        with patch.object(console_backend, "systemctl", side_effect=RuntimeError("sensitive detail")):
+            result = console_backend.service_action(
+                "aimilivpn@jp.service", "restart", instance_id="jp"
+            )
+
+        self.assertEqual(result, {"ok": False, "error": "service operation failed"})
+        self.assertNotIn("sensitive detail", str(result))
+
+    def test_backend_request_does_not_echo_connection_details(self) -> None:
+        with patch("http.client.HTTPConnection.request", side_effect=OSError("sensitive detail")):
+            result = console_backend.backend_request({"id": "jp", "ui_port": 8787}, "/api/status")
+
+        self.assertEqual(result, {"ok": False, "status": 502, "error": "backend unavailable"})
 
 
 if __name__ == "__main__":

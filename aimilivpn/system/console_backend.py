@@ -3,8 +3,17 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import subprocess
 from typing import Any
+
+
+MANAGED_SERVICE_PATTERN = re.compile(r"^aimilivpn@([a-z0-9][a-z0-9_-]{0,31})\.service$")
+
+
+def is_managed_service(service: str, instance_id: str | None = None) -> bool:
+    match = MANAGED_SERVICE_PATTERN.fullmatch(str(service or ""))
+    return bool(match and (instance_id is None or match.group(1) == instance_id.lower()))
 
 
 def systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -12,25 +21,29 @@ def systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def service_active(service: str) -> bool:
+    if not is_managed_service(service):
+        return False
     try:
         return systemctl(["is-active", "--quiet", service]).returncode == 0
     except Exception:
         return False
 
 
-def service_action(service: str, action: str) -> dict[str, Any]:
+def service_action(service: str, action: str, *, instance_id: str | None = None) -> dict[str, Any]:
     if action not in {"start", "stop", "restart"}:
         return {"ok": False, "error": "unsupported service action"}
+    if not is_managed_service(service, instance_id):
+        print("[console audit] rejected unmanaged service operation", flush=True)
+        return {"ok": False, "error": "service operation rejected"}
     try:
         res = systemctl([action, service])
-        return {
-            "ok": res.returncode == 0,
-            "stdout": res.stdout,
-            "stderr": res.stderr,
-            "returncode": res.returncode,
-        }
+        if res.returncode == 0:
+            return {"ok": True, "returncode": 0}
+        print(f"[console audit] service operation failed with return code {res.returncode}", flush=True)
+        return {"ok": False, "error": "service operation failed", "returncode": res.returncode}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        print(f"[console audit] service operation raised {type(exc).__name__}", flush=True)
+        return {"ok": False, "error": "service operation failed"}
 
 
 def backend_request(
@@ -51,11 +64,11 @@ def backend_request(
         resp = conn.getresponse()
         raw = resp.read()
     except Exception as exc:
-        return {
-            "ok": False,
-            "status": 502,
-            "error": f"backend {inst['id']} unavailable on 127.0.0.1:{inst['ui_port']}: {exc}",
-        }
+        print(
+            f"[console audit] backend request failed for managed instance: {type(exc).__name__}",
+            flush=True,
+        )
+        return {"ok": False, "status": 502, "error": "backend unavailable"}
     finally:
         conn.close()
     try:

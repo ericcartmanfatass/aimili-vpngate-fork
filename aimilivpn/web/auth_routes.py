@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any
@@ -48,6 +48,10 @@ def is_session_authorized(
 ) -> bool:
     if trusted:
         return True
+    if isinstance(sessions, MutableMapping):
+        for token, expires_at in list(sessions.items()):
+            if expires_at <= now:
+                sessions.pop(token, None)
     session_token = parse_cookie_header(cookie_header).get("session")
     if not session_token:
         return False
@@ -114,7 +118,8 @@ def handle_auth_post(handler: Any, effective_path: str, context: AuthRouteContex
             else:
                 handler.send_json({"ok": False, "error": "用户名或密码不正确，请重新输入"}, HTTPStatus.FORBIDDEN)
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"[web audit] login request failed: {type(exc).__name__}", flush=True)
+            handler.send_json({"ok": False, "error": "login failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
         return True
 
     if effective_path == "/api/logout":
@@ -133,7 +138,8 @@ def handle_auth_post(handler: Any, effective_path: str, context: AuthRouteContex
                 f"Expires=Thu, 01 Jan 1970 00:00:00 GMT{secure_cookie_suffix(handler)}",
             )
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"[web audit] logout request failed: {type(exc).__name__}", flush=True)
+            handler.send_json({"ok": False, "error": "logout failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
         return True
 
     return False
