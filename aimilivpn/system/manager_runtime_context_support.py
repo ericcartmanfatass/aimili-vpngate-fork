@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import vpn_utils
+from aimilivpn.core.connection_state import ConnectionPhase
 from aimilivpn.core.logging_utils import redact_log_message
 from aimilivpn.system import manager_wiring as wiring
 from aimilivpn.system import proxy_server
@@ -16,10 +17,15 @@ from aimilivpn.system.manager_helpers import parse_int, safe_name
 
 
 def build_thread_runtime(ctx: object) -> None:
+    def report_thread_error(name: str, exc: BaseException) -> None:
+        print(f"[runtime] background task {name} failed: {type(exc).__name__}", flush=True)
+        ctx.set_connection_phase(ConnectionPhase.FAILED, f"background task {name} failed", "")
+
     ctx.manager_thread_runtime = wiring.build_thread_runtime(wiring.ThreadRuntimeWiring(
         lock=ctx.lock,
         maintenance_lock=ctx.maintenance_lock,
         maintain_valid_nodes=lambda force: ctx.maintain_valid_nodes(force),
+        on_thread_error=report_thread_error,
     ))
     ctx.run_with_lock = ctx.manager_thread_runtime.run_with_lock
     ctx.try_acquire_maintenance_lock = ctx.manager_thread_runtime.try_acquire_maintenance_lock
@@ -27,6 +33,10 @@ def build_thread_runtime(ctx: object) -> None:
     ctx.start_background_thread = ctx.manager_thread_runtime.start_background_thread
     ctx.start_daemon_thread = ctx.manager_thread_runtime.start_daemon_thread
     ctx.start_maintenance_thread = ctx.manager_thread_runtime.start_maintenance_thread
+    ctx.start_runtime_tasks = ctx.manager_thread_runtime.start_tasks
+    ctx.stop_requested = ctx.manager_thread_runtime.stop_requested
+    ctx.wait_for_stop = ctx.manager_thread_runtime.wait
+    ctx.shutdown_background_threads = ctx.manager_thread_runtime.shutdown
 
 
 def build_node_view_runtime(ctx: object) -> None:

@@ -52,11 +52,47 @@ class ManagerThreadRuntimeTests(unittest.TestCase):
         runtime.start_daemon_thread(daemon_target, ("node-1",))
         runtime.start_maintenance_thread()
 
-        self.assertEqual(threads[0][0], {"target": background_target, "daemon": True})
-        self.assertEqual(threads[1][0], {"target": daemon_target, "args": ("node-1",), "daemon": True})
-        self.assertEqual(threads[2][0], {"target": runtime.maintain_valid_nodes, "args": (False,), "daemon": True})
+        self.assertEqual([set(kwargs) for kwargs, _ in threads], [{"target", "daemon"}] * 3)
         for _, thread in threads:
             thread.start.assert_called_once_with()
+
+        for kwargs, _ in threads:
+            kwargs["target"]()
+        background_target.assert_called_once_with()
+        daemon_target.assert_called_once_with("node-1")
+        runtime.maintain_valid_nodes.assert_called_once_with(False)
+
+    def test_thread_failure_is_collected_and_reported(self) -> None:
+        callbacks: list[object] = []
+        errors: list[tuple[str, BaseException]] = []
+
+        def thread_factory(**kwargs: object) -> Mock:
+            callbacks.append(kwargs["target"])
+            return Mock()
+
+        runtime = self.make_runtime(thread_factory=Mock(side_effect=thread_factory))
+        runtime.on_thread_error = lambda name, exc: errors.append((name, exc))
+
+        def fail() -> None:
+            raise RuntimeError("private detail")
+
+        runtime.start_background_thread(fail)
+        callbacks[0]()  # type: ignore[operator]
+
+        self.assertEqual(errors[0][0], "fail")
+        self.assertIsInstance(errors[0][1], RuntimeError)
+        self.assertEqual(runtime.failures(), tuple(errors))
+
+    def test_shutdown_sets_stop_event_and_joins_threads(self) -> None:
+        thread = Mock()
+        thread.is_alive.return_value = True
+        runtime = self.make_runtime(thread_factory=Mock(return_value=thread))
+        runtime.start_background_thread(lambda: None)
+
+        runtime.shutdown(timeout_seconds=1.5)
+
+        self.assertTrue(runtime.stop_requested())
+        thread.join.assert_called_once_with(1.5)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from http import HTTPStatus
 from typing import Any
 
 from aimilivpn.web.route_contexts import AuthRouteContext
+from aimilivpn.web.api_errors import send_api_error
 from aimilivpn.web.proxy_trust import secure_cookie_suffix
 
 
@@ -118,8 +119,7 @@ def handle_auth_post(handler: Any, effective_path: str, context: AuthRouteContex
             else:
                 handler.send_json({"ok": False, "error": "用户名或密码不正确，请重新输入"}, HTTPStatus.FORBIDDEN)
         except Exception as exc:
-            print(f"[web audit] login request failed: {type(exc).__name__}", flush=True)
-            handler.send_json({"ok": False, "error": "login failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "authentication_failed", exc=exc, operation="login")
         return True
 
     if effective_path == "/api/logout":
@@ -138,8 +138,7 @@ def handle_auth_post(handler: Any, effective_path: str, context: AuthRouteContex
                 f"Expires=Thu, 01 Jan 1970 00:00:00 GMT{secure_cookie_suffix(handler)}",
             )
         except Exception as exc:
-            print(f"[web audit] logout request failed: {type(exc).__name__}", flush=True)
-            handler.send_json({"ok": False, "error": "logout failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "logout_failed", exc=exc, operation="logout")
         return True
 
     return False

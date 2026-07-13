@@ -3,6 +3,7 @@ from __future__ import annotations
 from http import HTTPStatus
 from typing import Any
 
+from aimilivpn.web.api_errors import send_api_error
 from aimilivpn.web.route_contexts import ProxyRouteContext
 
 def handle_proxy_post(handler: Any, effective_path: str, context: ProxyRouteContext) -> bool:
@@ -28,5 +29,5 @@ def handle_proxy_post(handler: Any, effective_path: str, context: ProxyRouteCont
             )
         handler.send_json(result)
     except Exception as exc:
-        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        send_api_error(handler, "proxy_check_failed", exc=exc, operation="proxy check")
     return True

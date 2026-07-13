@@ -5,10 +5,11 @@ import threading
 import unittest
 from base64 import b64encode
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import proxy_server
 from aimilivpn.system import proxy_server as proxy_runtime
+from aimilivpn.system import proxy_service
 from aimilivpn.system.proxy_auth import check_credentials, parse_http_basic_auth
 from aimilivpn.system.proxy_server import dns_server_address, parse_host_port, relay
 
@@ -83,6 +84,21 @@ class ProxyServerTests(unittest.TestCase):
         self.assertNotIn("def socks5_client", source)
         self.assertNotIn("def http_client", source)
         self.assertNotIn("def start_proxy_server", source)
+
+    def test_proxy_listener_closes_when_runtime_stop_is_requested(self) -> None:
+        stop_event = threading.Event()
+        server = Mock()
+
+        def accept() -> object:
+            stop_event.set()
+            raise socket.timeout()
+
+        server.accept.side_effect = accept
+        with patch.object(proxy_service.socket, "socket", return_value=server):
+            proxy_service.start_proxy_server("127.0.0.1", 7928, stop_event=stop_event)
+
+        server.settimeout.assert_called_once_with(1.0)
+        server.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

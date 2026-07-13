@@ -4,6 +4,7 @@ import re
 from http import HTTPStatus
 from typing import Any
 
+from aimilivpn.web.api_errors import send_api_error, send_client_error
 from aimilivpn.web.route_contexts import ConfigRouteContext
 
 def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteContext) -> bool:
@@ -68,7 +69,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
                     "message": "账号密码配置更新成功，已即时生效。",
                 })
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "configuration_failed", exc=exc, operation="credential update")
         return True
 
     if effective_path == "/api/update_settings":
@@ -96,7 +97,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             try:
                 context.validate_routing_region_target(routing_mode, force_country)
             except ValueError as exc:
-                handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                send_client_error(handler, "invalid_configuration", str(exc))
                 return True
 
             ui_cfg = context.load_ui_config()
@@ -118,7 +119,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             else:
                 handler.send_json({"ok": True, "restart_needed": False, "message": "配置更新成功，已即时生效。"})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "configuration_failed", exc=exc, operation="settings update")
         return True
 
     if effective_path == "/api/update_routing":
@@ -138,7 +139,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             try:
                 context.validate_routing_region_target(routing_mode, force_country)
             except ValueError as exc:
-                handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                send_client_error(handler, "invalid_configuration", str(exc))
                 return True
 
             ui_cfg = context.load_ui_config()
@@ -150,7 +151,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             context.save_ui_config(ui_cfg)
             handler.send_json({"ok": True, "message": "出站路由配置更新成功，已即时生效。"})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "configuration_failed", exc=exc, operation="routing update")
         return True
 
     if effective_path == "/api/toggle_favorite":
@@ -171,7 +172,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             context.save_ui_config(ui_cfg)
             handler.send_json({"ok": True, "favorite_node_ids": fav_ids})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "configuration_failed", exc=exc, operation="favorite update")
         return True
 
     return False

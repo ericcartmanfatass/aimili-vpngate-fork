@@ -75,6 +75,7 @@ class StateStoreTests(unittest.TestCase):
             self.assertNotIn("password", state)
             self.assertEqual(state["active_openvpn_node_id"], "node-1")
             self.assertTrue(state["is_connecting"])
+            self.assertEqual(state["connection_state"], "connecting")
             self.assertEqual(state["allowed_countries"], ["JP", "KR"])
             self.assertEqual(state["local_proxy"], "http://[::1]:7928")
             self.assertEqual(state["username"], "admin")
@@ -92,6 +93,7 @@ class StateStoreTests(unittest.TestCase):
             state = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(state["last_check_message"], "updated")
             self.assertEqual(state["instance_id"], "inst-1")
+            self.assertEqual(state["connection_state"], "connecting")
 
 
 if __name__ == "__main__":

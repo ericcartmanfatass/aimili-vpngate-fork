@@ -162,7 +162,7 @@ class ActiveConnectionRuntimeFacadeTests(unittest.TestCase):
         self.assertEqual(messages, ["failed node-1: AUTH_FAILED"])
         self.assertEqual(states[0]["active_openvpn_node_id"], "")
         self.assertEqual(states[0]["is_connecting"], False)
-        self.assertEqual(states[0]["last_check_message"], "连接失败: AUTH_FAILED")
+        self.assertEqual(states[0]["last_check_message"], "连接失败: connection could not be established")
 
     def test_register_active_process_returns_process_and_node_id(self) -> None:
         process = FakeProcess()

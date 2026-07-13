@@ -38,7 +38,7 @@ def build_repository_runtime(ctx: object) -> None:
 
 def build_quality_runtime(ctx: object) -> None:
     ctx.manager_quality_runtime = wiring.build_quality_runtime(wiring.QualityRuntimeWiring(
-        root_dir=ctx.root_dir,
+        app_config=ctx.app_config,
         quality_repository=ctx.quality_repository,
         region_repository=ctx.region_repository,
         region_target_id=lambda target: ctx.region_target_id(target),
@@ -116,6 +116,7 @@ def build_runtime_state(ctx: object) -> None:
     ctx.read_json = ctx.manager_runtime_state.read_json
     ctx.runtime_state_store = ctx.manager_runtime_state.store
     ctx.set_state = ctx.manager_runtime_state.set_state
+    ctx.set_connection_phase = ctx.manager_runtime_state.set_connection_phase
     ctx.get_state = ctx.manager_runtime_state.get_state
 
 

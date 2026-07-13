@@ -32,6 +32,8 @@ class ManagerMonitoringRuntime:
     proxy_port: Callable[[], int]
     ping_latency_ms: Callable[[str, int, int], int]
     parse_int: Callable[[Any], int]
+    stop_requested: Callable[[], bool] = lambda: False
+    wait_for_stop: Callable[[int | float], bool] | None = None
     _runtime: MonitoringRuntime | None = field(default=None, init=False)
 
     def set_collector_heartbeat(self, value: float) -> None:
@@ -71,6 +73,8 @@ class ManagerMonitoringRuntime:
                 proxy_port=self.proxy_port,
                 ping_latency_ms=self.ping_latency_ms,
                 parse_int=self.parse_int,
+                stop_requested=self.stop_requested,
+                wait_for_stop=self.wait_for_stop,
             )
         return self._runtime
 

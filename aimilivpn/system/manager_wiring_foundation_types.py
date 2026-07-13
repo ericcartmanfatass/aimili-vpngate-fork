@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, MutableMapping
 
+from aimilivpn.core.config import AppConfig
 from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository, SettingsRepository
 from aimilivpn.system.manager_state import ManagerMutableState
 from aimilivpn.system.runtime_paths import RuntimePaths
@@ -41,7 +42,7 @@ class RepositoryRuntimeWiring:
 
 @dataclass(frozen=True)
 class QualityRuntimeWiring:
-    root_dir: Path
+    app_config: AppConfig
     quality_repository: QualityRepository
     region_repository: RegionRepository
     region_target_id: Callable[[str], str]

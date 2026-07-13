@@ -33,6 +33,24 @@ class ManagerRuntimeContextStaticTests(unittest.TestCase):
         self.assertNotIn("manager_runtime_context_support", source)
         self.assertNotIn("manager_runtime_context_web", source)
 
+    def test_runtime_context_exposes_explicit_service_contract_bundle(self) -> None:
+        source = (SYSTEM_DIR / "manager_runtime_context.py").read_text(encoding="utf-8")
+
+        self.assertIn("self.services = ManagerRuntimeServices(", source)
+        for name in ("config", "repositories", "connection", "monitoring", "lifecycle", "logs", "web"):
+            self.assertIn(f"{name}=", source)
+
+    def test_internal_runtime_modules_do_not_import_compat_entrypoint(self) -> None:
+        offenders = []
+        for path in SYSTEM_DIR.glob("*.py"):
+            if path.name == "vpngate_manager.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "import vpngate_manager" in source or "from vpngate_manager" in source:
+                offenders.append(path.name)
+
+        self.assertEqual(offenders, [])
+
 
 if __name__ == "__main__":
     unittest.main()

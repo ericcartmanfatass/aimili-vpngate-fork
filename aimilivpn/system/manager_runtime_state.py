@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from aimilivpn.core.connection_state import ConnectionPhase, connection_phase_update
 from aimilivpn.system.manager_state import ManagerMutableState
 from aimilivpn.system.state_store import RuntimeStateStore, read_json_file, write_json_file
 
@@ -55,3 +56,11 @@ class ManagerRuntimeState:
 
     def set_state(self, **updates: Any) -> None:
         self.store().set_state(**updates)
+
+    def set_connection_phase(
+        self,
+        phase: ConnectionPhase | str,
+        message: str = "",
+        node_id: str = "",
+    ) -> None:
+        self.set_state(**connection_phase_update(phase, message=message, node_id=node_id))

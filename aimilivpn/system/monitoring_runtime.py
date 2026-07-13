@@ -40,10 +40,19 @@ class MonitoringRuntime:
     proxy_port: Callable[[], int]
     ping_latency_ms: Callable[[str, int, int], int]
     parse_int: Callable[[Any], int]
+    stop_requested: Callable[[], bool] = lambda: False
+    wait_for_stop: Callable[[int | float], bool] | None = None
+
+    def _wait(self, seconds: int | float) -> bool:
+        if self.wait_for_stop is not None:
+            return self.wait_for_stop(seconds)
+        self.sleep(seconds)
+        return self.stop_requested()
 
     def collector_loop(self) -> None:
-        while True:
-            self.sleep(self.run_collector_cycle())
+        while not self.stop_requested():
+            if self._wait(self.run_collector_cycle()):
+                break
 
     def run_collector_cycle(self) -> int:
         self.set_collector_heartbeat(self.now())
@@ -59,7 +68,7 @@ class MonitoringRuntime:
             err_msg = f"周期节点同步任务执行异常: {exc}"
             self.print_line(f"[错误] {err_msg}")
             self.log_line("ERROR", "Main", err_msg)
-            self.set_state(last_check_at=self.now(), last_check_message=f"check error: {exc}")
+            self.set_state(last_check_at=self.now(), last_check_message="background node maintenance failed")
 
         return collector_sleep_seconds(
             active_running=self.active_openvpn_running(),
@@ -68,9 +77,11 @@ class MonitoringRuntime:
         )
 
     def proxy_checker_loop(self) -> None:
-        self.sleep(30)
-        while True:
-            self.sleep(self.run_proxy_checker_cycle())
+        if self._wait(30):
+            return
+        while not self.stop_requested():
+            if self._wait(self.run_proxy_checker_cycle()):
+                break
 
     def run_proxy_checker_cycle(self) -> int:
         self.set_checker_heartbeat(self.now())
@@ -116,8 +127,9 @@ class MonitoringRuntime:
         return 10
 
     def active_node_pinger_loop(self) -> None:
-        while True:
-            self.sleep(self.run_active_node_ping_cycle())
+        while not self.stop_requested():
+            if self._wait(self.run_active_node_ping_cycle()):
+                break
 
     def _handle_proxy_failure(self, error_msg: str) -> None:
         active_node_id = self.get_active_node_id()

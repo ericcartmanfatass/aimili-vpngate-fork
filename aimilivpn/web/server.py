@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import socket
 import urllib.parse
 from dataclasses import dataclass
@@ -8,7 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, MutableMapping, cast
 
 from aimilivpn.web.context_factory import WebRouteContextFactory
-from aimilivpn.web.http_utils import HttpResponseMixin
+from aimilivpn.web.api_errors import send_api_error
+from aimilivpn.web.http_utils import HttpResponseMixin, InvalidRequestBody, RequestBodyTooLarge
 from aimilivpn.web.proxy_trust import (
     DEFAULT_TRUSTED_PROXY_ADDRESSES,
     management_http_notice,
@@ -132,7 +134,28 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         message = redact_secret_path(format % args, self.get_secret_path())
         print(f"[{self.log_date_time_string()}] {message}", flush=True)
 
+    def dispatch_safely(self, callback: Callable[[], None]) -> None:
+        try:
+            callback()
+        except RequestBodyTooLarge:
+            self.send_json(
+                {"ok": False, "error": "request body too large", "error_code": "request_too_large"},
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+        except (InvalidRequestBody, json.JSONDecodeError, UnicodeDecodeError):
+            self.send_json(
+                {"ok": False, "error": "invalid request body", "error_code": "invalid_request"},
+                HTTPStatus.BAD_REQUEST,
+            )
+        except OSError as exc:
+            print(f"[web audit] response transport failed: {type(exc).__name__}", flush=True)
+        except Exception as exc:
+            send_api_error(self, "internal_error", exc=exc, operation="request dispatch")
+
     def do_GET(self) -> None:
+        self.dispatch_safely(self._do_get)
+
+    def _do_get(self) -> None:
         effective_path = self.validate_path()
         if effective_path == "":
             return
@@ -145,6 +168,9 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
+        self.dispatch_safely(self._do_post)
+
+    def _do_post(self) -> None:
         effective_path = self.validate_path()
         if effective_path == "":
             return
@@ -155,6 +181,9 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         )
 
     def do_PUT(self) -> None:
+        self.dispatch_safely(self._do_put)
+
+    def _do_put(self) -> None:
         effective_path = self.validate_path()
         if effective_path == "":
             return
@@ -165,6 +194,9 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         )
 
     def do_DELETE(self) -> None:
+        self.dispatch_safely(self._do_delete)
+
+    def _do_delete(self) -> None:
         effective_path = self.validate_path()
         if effective_path == "":
             return

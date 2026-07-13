@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from aimilivpn.core.connection_state import ConnectionPhase
 from aimilivpn.core.connection import (
     connection_success_state,
     mark_connection_active,
@@ -108,18 +109,21 @@ def connect_node(ctx: Any, node_id: str) -> str:
                 timeout_label="检测超时",
             )
         )
+        ctx.transition(ConnectionPhase.CONNECTED, f"connected to {node_id}", node_id)
         ctx.log_line("INFO", "VPN", f"节点 {node_id} 连接成功，出口网卡 {ctx.tun_dev()} 已启用")
         return f"Connected {node_id}"
     except Exception as exc:
+        ctx.log_line("ERROR", "VPN", f"connection attempt failed: {type(exc).__name__}: {exc}")
+        ctx.transition(ConnectionPhase.FAILED, "connection failed")
         if should_clear_failed_connection(
             stopped_existing=stopped_existing,
             active_node_id=ctx.get_active_node_id(),
             requested_node_id=node_id,
             active_running=ctx.active_openvpn_running(),
         ):
-            ctx.clear_active_connection_state(f"连接失败: {exc}")
+            ctx.clear_active_connection_state("connection failed")
         else:
-            ctx.set_state(is_connecting=False, last_check_message=f"连接失败: {exc}")
+            ctx.set_state(is_connecting=False, last_check_message="connection failed")
         raise
     finally:
         def finish_connecting() -> None:

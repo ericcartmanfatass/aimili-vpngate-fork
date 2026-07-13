@@ -33,6 +33,7 @@ from aimilivpn.system.manager_config import bounded_int
 from aimilivpn.system.manager_helpers import parse_int, safe_name
 from aimilivpn.system.manager_web import default_index_html, default_login_html
 from aimilivpn.system.openvpn_status import update_handshake_status as update_openvpn_handshake_status
+from aimilivpn.system.runtime_contracts import ManagerRuntimeServices
 from aimilivpn.system.startup import start_daemon_threads, wait_for_gateway
 from aimilivpn.web.api import quality_to_dict, region_to_dict
 from aimilivpn.web.server import serve_web_forever
@@ -62,6 +63,16 @@ class ManagerRuntimeContext:
         self._build_service_runtime()
         self._build_entry_runtime()
         self._build_node_probe_runtime()
+
+        self.services = ManagerRuntimeServices(
+            config=self.config,
+            repositories=self.repositories,
+            connection=self.manager_connection_runtime,
+            monitoring=self.manager_monitoring_runtime,
+            lifecycle=self.manager_thread_runtime,
+            logs=self.json_log_runtime,
+            web=self.manager_web_runtime,
+        )
 
         self.handler_class = self.manager_entry_runtime.handler_class()
 

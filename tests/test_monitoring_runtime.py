@@ -115,6 +115,15 @@ class MonitoringRuntimeTests(unittest.TestCase):
         self.assertEqual(state["pinger_heartbeat"], 123.0)
         self.assertEqual(state["states"][-1]["active_node_latency"], "42 ms")
 
+    def test_collector_loop_exits_when_runtime_stop_is_requested(self) -> None:
+        runtime, _ = self.build_runtime()
+        waits: list[int | float] = []
+        runtime.wait_for_stop = lambda seconds: waits.append(seconds) or True
+
+        runtime.collector_loop()
+
+        self.assertEqual(waits, [120])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ from http import HTTPStatus
 from typing import Any
 
 from aimilivpn.core.regions import InvalidRegion, preview_region
+from aimilivpn.web.api_errors import send_api_error, send_client_error
 from aimilivpn.web.api import quality_to_dict, region_to_dict
 from aimilivpn.web.route_contexts import RegionQualityRouteContext
 
@@ -58,9 +59,9 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             saved_region = context.region_repository.get(region.id) or region
             handler.send_json({"ok": True, "region": region_to_dict(saved_region)}, HTTPStatus.CREATED)
         except (InvalidRegion, ValueError) as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            send_client_error(handler, "invalid_region", str(exc))
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "region_operation_failed", exc=exc, operation="region create")
         return True
 
     if effective_path.startswith("/api/regions/"):
@@ -74,9 +75,9 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
                 preview = preview_region(region, context.read_nodes())
                 handler.send_json({"ok": True, "preview": preview.__dict__})
             except (InvalidRegion, ValueError) as exc:
-                handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                send_client_error(handler, "invalid_region", str(exc))
             except Exception as exc:
-                handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                send_api_error(handler, "region_operation_failed", exc=exc, operation="region preview")
             return True
         handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         return True
@@ -92,9 +93,9 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             quality = context.latest_quality_for_node(node_id)
             handler.send_json({"ok": True, "node": updated_node, "quality": quality_to_dict(quality)})
         except ValueError as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)
+            send_client_error(handler, "node_not_found", str(exc), HTTPStatus.NOT_FOUND)
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "node_operation_failed", exc=exc, operation="quality node check")
         return True
 
     if effective_path == "/api/quality/check-ip":
@@ -104,11 +105,17 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             result = context.check_quality_ip(ip)
             handler.send_json({"ok": True, "quality": quality_to_dict(result)})
         except ValueError as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            send_client_error(handler, "invalid_quality_request", str(exc))
         except context.scamalytics_errors as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+            send_api_error(
+                handler,
+                "quality_provider_failed",
+                HTTPStatus.BAD_GATEWAY,
+                exc=exc,
+                operation="quality provider check",
+            )
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "quality_provider_failed", exc=exc, operation="quality IP check")
         return True
 
     if effective_path == "/api/quality/check-region":
@@ -118,11 +125,11 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             limit = context.bounded_int(payload.get("limit"), 20, 1, 100)
             handler.send_json({"ok": True, **context.check_quality_region(region_id, limit=limit)})
         except ValueError as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            send_client_error(handler, "invalid_quality_request", str(exc))
         except KeyError:
             handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "region_operation_failed", exc=exc, operation="quality region check")
         return True
 
     return False
@@ -149,11 +156,11 @@ def handle_region_put(handler: Any, effective_path: str, context: RegionQualityR
         saved_region = context.region_repository.get(region_id) or region
         handler.send_json({"ok": True, "region": region_to_dict(saved_region)})
     except (InvalidRegion, ValueError) as exc:
-        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        send_client_error(handler, "invalid_region", str(exc))
     except KeyError:
         handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
     except Exception as exc:
-        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        send_api_error(handler, "region_operation_failed", exc=exc, operation="region update")
     return True
 
 def handle_region_delete(handler: Any, effective_path: str, context: RegionQualityRouteContext) -> bool:
@@ -171,5 +178,5 @@ def handle_region_delete(handler: Any, effective_path: str, context: RegionQuali
     except KeyError:
         handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
     except Exception as exc:
-        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        send_api_error(handler, "region_operation_failed", exc=exc, operation="region delete")
     return True

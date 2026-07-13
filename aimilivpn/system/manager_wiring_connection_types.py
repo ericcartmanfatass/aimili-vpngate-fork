@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from aimilivpn.core.connection_state import ConnectionPhase
 from aimilivpn.system.manager_state import ManagerMutableState
 
 
@@ -50,6 +51,7 @@ class ConnectionRuntimeWiring:
     maintenance_test_limit: Callable[[], int]
     node_test_workers: Callable[[], int]
     exclude_datacenter: Callable[[], bool]
+    set_connection_phase: Callable[[ConnectionPhase | str, str, str], None]
 
 
 @dataclass(frozen=True)
@@ -77,3 +79,5 @@ class MonitoringRuntimeWiring:
     proxy_port: Callable[[], int]
     ping_latency_ms: Callable[[str, int, int], int]
     parse_int: Callable[[Any], int]
+    stop_requested: Callable[[], bool]
+    wait_for_stop: Callable[[int | float], bool]

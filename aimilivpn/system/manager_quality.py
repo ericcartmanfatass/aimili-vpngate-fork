@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable
 
-from aimilivpn.core.config import load_config
+from aimilivpn.core.config import AppConfig
 from aimilivpn.core.models import QualityResult
 from aimilivpn.core.storage import QualityRepository, RegionRepository
 from aimilivpn.providers.scamalytics import ScamalyticsProvider
@@ -13,7 +12,7 @@ from aimilivpn.system import quality_runtime
 
 @dataclass
 class ManagerQualityRuntime:
-    root_dir: Path
+    app_config: AppConfig
     quality_repository: QualityRepository
     region_repository: RegionRepository
     region_target_id: Callable[[str], str]
@@ -25,7 +24,7 @@ class ManagerQualityRuntime:
 
     def get_scamalytics_provider(self) -> ScamalyticsProvider | None:
         self._scamalytics_provider = quality_runtime.configured_scamalytics_provider(
-            load_config(self.root_dir),
+            self.app_config,
             self._scamalytics_provider,
         )
         return self._scamalytics_provider
@@ -91,4 +90,4 @@ class ManagerQualityRuntime:
         )
 
     def quality_provider_status(self) -> dict[str, Any]:
-        return quality_runtime.provider_status(self.root_dir)
+        return quality_runtime.provider_status(self.app_config)

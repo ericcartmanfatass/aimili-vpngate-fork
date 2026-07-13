@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from aimilivpn.core.connection_state import ConnectionPhase
 from aimilivpn.core.maintenance import (
     ensure_node_config_files,
     format_fetch_error_message,
@@ -21,6 +22,7 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
         return msg
 
     ctx.set_is_connecting(True)
+    ctx.transition(ConnectionPhase.FETCHING, "fetching VPN nodes")
     try:
         if force:
             ctx.run_locked(ctx.stop_active_openvpn)
@@ -41,6 +43,8 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
             candidates = []
 
         if not candidates:
+            phase = ConnectionPhase.CONNECTED if ctx.active_openvpn_running() else ConnectionPhase.IDLE
+            ctx.transition(phase, "no new candidate nodes", ctx.get_active_node_id())
             return "没有拉取到新节点"
 
         ctx.run_locked(lambda: ctx._merge_candidate_nodes(candidates))
@@ -54,6 +58,7 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
         ctx.log_line("INFO", "Main", msg)
 
         ctx.set_state(is_connecting=True, last_check_message=msg)
+        ctx.transition(ConnectionPhase.PROBING, "probing candidate nodes")
         if to_test_ids:
             ctx.test_multiple_nodes(to_test_ids)
         else:
@@ -69,7 +74,12 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
             active_openvpn_node_id=ctx.get_active_node_id(),
             valid_nodes=valid_nodes_count,
         )
+        phase = ConnectionPhase.CONNECTED if ctx.active_openvpn_running() else ConnectionPhase.IDLE
+        ctx.transition(phase, message, ctx.get_active_node_id())
         return message
+    except Exception:
+        ctx.transition(ConnectionPhase.FAILED, "maintenance failed")
+        raise
     finally:
         ctx.set_is_connecting(False)
         ctx.release_maintenance()

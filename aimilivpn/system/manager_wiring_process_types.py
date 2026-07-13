@@ -45,6 +45,8 @@ class ServiceRuntimeWiring:
     print_line: Callable[[str], None]
     set_stdout: Callable[[Any], None]
     set_stderr: Callable[[Any], None]
+    shutdown_background_threads: Callable[[], None]
+    stop_active_openvpn: Callable[[], None]
 
 
 @dataclass(frozen=True)

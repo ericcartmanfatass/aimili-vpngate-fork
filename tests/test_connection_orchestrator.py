@@ -90,6 +90,7 @@ class ConnectionOrchestratorTests(unittest.TestCase):
             "logs": logs,
             "messages": messages,
             "written_nodes": written_nodes,
+            "phases": [],
         }
 
         def run_locked(callback: Callable[[], Any]) -> Any:
@@ -149,8 +150,22 @@ class ConnectionOrchestratorTests(unittest.TestCase):
             maintenance_test_limit=lambda: 10,
             node_test_workers=lambda: 2,
             exclude_datacenter=lambda: False,
+            set_connection_phase=lambda phase, message, node_id: state["phases"].append(
+                (getattr(phase, "value", phase), message, node_id)
+            ),
         )
         return orchestrator, state
+
+    def test_successful_connect_uses_shared_connection_state_machine(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "jp_1.ovpn"
+            nodes = [{"id": "jp_1", "config_file": str(config_file), "config_text": "client"}]
+            orchestrator, state = self.build_orchestrator(nodes=nodes, tmp_dir=Path(tmp))
+
+            result = orchestrator.connect_node("jp_1")
+
+        self.assertEqual(result, "Connected jp_1")
+        self.assertEqual(state["phases"][-1], ("connected", "connected to jp_1", "jp_1"))
 
     def test_auto_switch_connects_best_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

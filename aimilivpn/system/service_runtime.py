@@ -62,6 +62,8 @@ class VpnGateServiceRuntime:
     print_line: Callable[[str], None]
     set_stdout: Callable[[Any], None]
     set_stderr: Callable[[Any], None]
+    shutdown_background_threads: Callable[[], None]
+    stop_active_openvpn: Callable[[], None]
     tee_factory: Callable[[str], Any] = Tee
 
     def main(self) -> None:
@@ -72,45 +74,48 @@ class VpnGateServiceRuntime:
         self.set_stdout(tee)
         self.set_stderr(tee)
 
-        self.write_json(
-            self.state_file(),
-            build_initial_state(
-                api_url=self.api_url(),
-                instance_id=self.instance_id(),
-                tun_dev=self.tun_dev(),
-                policy_table=self.policy_table(),
-                allowed_countries=self.allowed_countries(),
-                target_valid_nodes=self.target_valid_nodes(),
-                fetch_interval_seconds=self.fetch_interval_seconds(),
-                check_interval_seconds=self.check_interval_seconds(),
-                local_proxy_host=self.local_proxy_host(),
-                local_proxy_port=self.local_proxy_port(),
-                last_check_message="服务已启动，正在初始化网络并获取候选 VPN 节点...",
-                active_node_latency="正在准备",
-            ),
-        )
-        self.start_daemon_threads(((self.start_proxy_server, (self.local_proxy_host(), self.local_proxy_port(), self.tun_dev())),))
-
-        self.print_line("[网关] 正在启动代理网关...")
-        gateway_ready = self.wait_for_gateway(self.local_proxy_host(), self.local_proxy_port())
-        if gateway_ready:
-            self.print_line("[网关] 代理网关已成功启动监听，启动同步与检测脚本...")
-        else:
-            self.print_line("[警告] 代理网关启动超时，继续执行脚本...")
-
-        self.start_daemon_threads(
-            (
-                (self.collector_loop, ()),
-                (self.background_proxy_checker, ()),
-                (self.active_node_pinger, ()),
+        try:
+            self.write_json(
+                self.state_file(),
+                build_initial_state(
+                    api_url=self.api_url(),
+                    instance_id=self.instance_id(),
+                    tun_dev=self.tun_dev(),
+                    policy_table=self.policy_table(),
+                    allowed_countries=self.allowed_countries(),
+                    target_valid_nodes=self.target_valid_nodes(),
+                    fetch_interval_seconds=self.fetch_interval_seconds(),
+                    check_interval_seconds=self.check_interval_seconds(),
+                    local_proxy_host=self.local_proxy_host(),
+                    local_proxy_port=self.local_proxy_port(),
+                    last_check_message="服务已启动，正在初始化网络并获取候选 VPN 节点...",
+                    active_node_latency="正在准备",
+                ),
             )
-        )
+            self.start_daemon_threads(((self.start_proxy_server, (self.local_proxy_host(), self.local_proxy_port(), self.tun_dev())),))
 
-        ui_cfg = self.load_ui_config()
-        ui_host = ui_cfg.get("host", self.ui_host())
-        ui_port = self.bounded_int(ui_cfg.get("port"), self.ui_port(), 1, 65535)
+            self.print_line("[网关] 正在启动代理网关...")
+            gateway_ready = self.wait_for_gateway(self.local_proxy_host(), self.local_proxy_port())
+            if gateway_ready:
+                self.print_line("[网关] 代理网关已成功启动监听，启动同步与检测脚本...")
+            else:
+                self.print_line("[警告] 代理网关启动超时，继续执行脚本...")
 
-        self.print_line(f"UI: http://{ui_host}:{ui_port}/")
-        self.print_line(f"Proxy: http://{self.local_proxy_host()}:{self.local_proxy_port()}")
-        self.serve_web_forever(ui_host, ui_port, self.web_server_runtime())
+            self.start_daemon_threads(
+                (
+                    (self.collector_loop, ()),
+                    (self.background_proxy_checker, ()),
+                    (self.active_node_pinger, ()),
+                )
+            )
 
+            ui_cfg = self.load_ui_config()
+            ui_host = ui_cfg.get("host", self.ui_host())
+            ui_port = self.bounded_int(ui_cfg.get("port"), self.ui_port(), 1, 65535)
+
+            self.print_line(f"UI: http://{ui_host}:{ui_port}/")
+            self.print_line(f"Proxy: http://{self.local_proxy_host()}:{self.local_proxy_port()}")
+            self.serve_web_forever(ui_host, ui_port, self.web_server_runtime())
+        finally:
+            self.shutdown_background_threads()
+            self.stop_active_openvpn()

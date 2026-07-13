@@ -4,6 +4,8 @@ import urllib.parse
 from http import HTTPStatus
 from typing import Any
 
+from aimilivpn.core.connection_state import ConnectionPhase
+from aimilivpn.web.api_errors import send_api_error
 from aimilivpn.web.route_contexts import NodeRouteContext
 
 def handle_node_get(handler: Any, effective_path: str, context: NodeRouteContext) -> bool:
@@ -65,7 +67,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
         try:
             handler.send_json({"ok": True, "message": context.maintain_valid_nodes(True)})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "maintenance_failed", exc=exc, operation="forced maintenance")
         return True
 
     if effective_path == "/api/refresh_nodes":
@@ -76,7 +78,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
                 context.start_maintenance()
                 handler.send_json({"ok": True, "message": "已在后台启动节点更新流程", "running": False})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "maintenance_failed", exc=exc, operation="maintenance start")
         return True
 
     if effective_path == "/api/test_nodes":
@@ -86,7 +88,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             tested_nodes = context.test_multiple_nodes(node_ids)
             handler.send_json({"ok": True, "nodes": tested_nodes})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "node_operation_failed", exc=exc, operation="node batch test")
         return True
 
     if effective_path == "/api/disconnect":
@@ -104,12 +106,13 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             context.set_last_active_latency(0)
             context.set_state(
                 active_openvpn_node_id="",
+                connection_state=ConnectionPhase.IDLE.value,
                 last_check_message="手动断开连接",
                 active_node_latency="无活动连接",
             )
             handler.send_json({"ok": True})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "node_operation_failed", exc=exc, operation="disconnect")
         return True
 
     if effective_path == "/api/connect":
@@ -117,7 +120,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             payload = handler.read_json_body()
             handler.send_json({"ok": True, "message": context.connect_node(str(payload.get("id") or ""))})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "node_operation_failed", exc=exc, operation="connect")
         return True
 
     if effective_path == "/api/test_node":
@@ -127,7 +130,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             updated_node = context.test_node_by_id(node_id)
             handler.send_json({"ok": True, "node": updated_node})
         except Exception as exc:
-            handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            send_api_error(handler, "node_operation_failed", exc=exc, operation="node test")
         return True
 
     return False

@@ -8,7 +8,7 @@ from aimilivpn.system import proxy_server
 from aimilivpn.system.manager_callbacks import module_log_writer, print_line, set_stderr, set_stdout
 from aimilivpn.system.manager_config import bounded_int
 from aimilivpn.system.manager_helpers import parse_int, safe_name
-from aimilivpn.system.startup import start_daemon_threads, wait_for_gateway
+from aimilivpn.system.startup import wait_for_gateway
 from aimilivpn.web.server import serve_web_forever
 
 
@@ -61,11 +61,16 @@ def build_service_runtime(ctx: object) -> None:
         local_proxy_port=lambda: ctx.local_proxy_port,
         ui_host=lambda: ctx.ui_host,
         ui_port=lambda: ctx.ui_port,
-        start_proxy_server=proxy_server.start_proxy_server,
+        start_proxy_server=lambda host, port, tun: proxy_server.start_proxy_server(
+            host,
+            port,
+            tun,
+            stop_event=ctx.manager_thread_runtime.stop_event,
+        ),
         collector_loop=lambda: ctx.collector_loop(),
         background_proxy_checker=lambda: ctx.background_proxy_checker(),
         active_node_pinger=lambda: ctx.active_node_pinger(),
-        start_daemon_threads=start_daemon_threads,
+        start_daemon_threads=ctx.start_runtime_tasks,
         wait_for_gateway=wait_for_gateway,
         load_ui_config=ctx.load_ui_config,
         bounded_int=bounded_int,
@@ -74,6 +79,8 @@ def build_service_runtime(ctx: object) -> None:
         print_line=print_line,
         set_stdout=set_stdout,
         set_stderr=set_stderr,
+        shutdown_background_threads=ctx.shutdown_background_threads,
+        stop_active_openvpn=ctx.stop_active_openvpn,
     ))
 
 

@@ -6,37 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from aimilivpn.core.config import AppConfig, env_bool, env_int, env_text, load_config
 from aimilivpn.system.runtime_paths import RuntimePaths, build_runtime_paths
-from aimilivpn.web.proxy_trust import parse_trusted_proxy_addresses
-
-
-def env_int(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
-    raw = os.environ.get(name)
-    raw_text = raw.strip() if raw is not None else ""
-    try:
-        value = int(raw_text) if raw_text else default
-    except (TypeError, ValueError):
-        print(f"[配置警告] 环境变量 {name}={raw!r} 不是有效整数，使用默认值 {default}", flush=True)
-        value = default
-    if min_value is not None and value < min_value:
-        print(f"[配置警告] 环境变量 {name}={value} 小于允许值 {min_value}，使用默认值 {default}", flush=True)
-        return default
-    if max_value is not None and value > max_value:
-        print(f"[配置警告] 环境变量 {name}={value} 大于允许值 {max_value}，使用默认值 {default}", flush=True)
-        return default
-    return value
-
-
-def env_text(name: str, default: str) -> str:
-    value = (os.environ.get(name) or "").strip()
-    return value or default
-
-
-def env_bool(name: str, default: bool = False) -> bool:
-    value = (os.environ.get(name) or "").strip().lower()
-    if not value:
-        return default
-    return value in ("1", "true", "yes", "on")
 
 
 def bounded_int(value: Any, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
@@ -96,6 +67,7 @@ def apply_ui_config_overrides(
 class ManagerRuntimeConfig:
     root_dir: Path
     paths: RuntimePaths
+    app_config: AppConfig
     api_url: str
     fetch_interval_seconds: int
     check_interval_seconds: int
@@ -157,48 +129,42 @@ def build_manager_runtime_environment(
 
 def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
     resolved_root = root_dir.resolve()
-    data_dir_env = (os.environ.get("VPNGATE_DATA_DIR") or "").strip() or None
-    runtime_paths = build_runtime_paths(resolved_root, data_dir_env)
+    app_config = load_config(resolved_root)
+    runtime_paths = build_runtime_paths(resolved_root, str(app_config.data_dir))
     target_valid_nodes = env_int("TARGET_VALID_NODES", 3, 1)
-    allowed_countries = {
-        item.strip()
-        for item in os.environ.get("ALLOWED_COUNTRIES", "").strip().upper().split(",")
-        if item.strip()
-    }
     sqlite_env = (os.environ.get("SQLITE_DB_PATH") or "").strip()
     sqlite_db_path = Path(sqlite_env).expanduser() if sqlite_env else runtime_paths.data_dir / "aimilivpn.db"
     sqlite_db_path = sqlite_db_path if sqlite_db_path.is_absolute() else resolved_root / sqlite_db_path
     return ManagerRuntimeConfig(
         root_dir=resolved_root,
         paths=runtime_paths,
-        api_url="https://www.vpngate.net/api/iphone/",
+        app_config=app_config,
+        api_url=app_config.api_url,
         fetch_interval_seconds=env_int("FETCH_INTERVAL_SECONDS", 1260, 1),
         check_interval_seconds=env_int("CHECK_INTERVAL_SECONDS", 1260, 1),
         target_valid_nodes=target_valid_nodes,
-        max_scan_rows=env_int("MAX_SCAN_ROWS", 300, 1),
+        max_scan_rows=app_config.max_scan_rows,
         openvpn_test_timeout_seconds=env_int("OPENVPN_TEST_TIMEOUT_SECONDS", 35, 1),
         openvpn_maintenance_test_timeout_seconds=env_int("OPENVPN_MAINTENANCE_TEST_TIMEOUT_SECONDS", 8, 3),
         node_test_workers=env_int("NODE_TEST_WORKERS", 2, 1, 10),
         max_maintenance_test_nodes=env_int("MAX_MAINTENANCE_TEST_NODES", max(18, target_valid_nodes * 6), 1),
         node_retest_interval_seconds=env_int("NODE_RETEST_INTERVAL_SECONDS", 6 * 3600, 60),
-        openvpn_cmd=env_text("OPENVPN_CMD", "openvpn"),
+        openvpn_cmd=app_config.openvpn_cmd,
         openvpn_auth_user=os.environ.get("OPENVPN_AUTH_USER", "vpn"),
         openvpn_auth_pass=os.environ.get("OPENVPN_AUTH_PASS", "vpn"),
-        local_proxy_host=env_text("LOCAL_PROXY_HOST", "127.0.0.1"),
-        local_proxy_port=env_int("LOCAL_PROXY_PORT", 7928, 1, 65535),
-        ui_host=env_text("UI_HOST", "127.0.0.1"),
-        ui_port=env_int("UI_PORT", 8787, 1, 65535),
-        trust_proxy_headers=env_bool("AIMILIVPN_TRUST_PROXY_HEADERS"),
-        trusted_proxy_addresses=parse_trusted_proxy_addresses(
-            os.environ.get("AIMILIVPN_TRUSTED_PROXY_ADDRESSES")
-        ),
+        local_proxy_host=app_config.local_proxy_host,
+        local_proxy_port=app_config.local_proxy_port,
+        ui_host=app_config.ui_host,
+        ui_port=app_config.ui_port,
+        trust_proxy_headers=app_config.trust_proxy_headers,
+        trusted_proxy_addresses=app_config.trusted_proxy_addresses,
         invalid_backoff_seconds=env_int("INVALID_BACKOFF_SECONDS", 30 * 60, 1),
-        instance_id=os.environ.get("INSTANCE_ID", "default").strip().lower() or "default",
-        tun_dev=os.environ.get("TUN_DEV", "tun0").strip() or "tun0",
-        policy_table=os.environ.get("POLICY_TABLE", "100").strip() or "100",
-        allowed_countries=allowed_countries,
+        instance_id=env_text("INSTANCE_ID", "default").lower(),
+        tun_dev=app_config.tun_dev,
+        policy_table=app_config.policy_table,
+        allowed_countries=app_config.allowed_countries,
         exclude_datacenter=env_bool("EXCLUDE_DATACENTER"),
-        allow_insecure_fetch=env_bool("ALLOW_INSECURE_FETCH"),
+        allow_insecure_fetch=app_config.allow_insecure_fetch,
         storage_backend=env_choice("STORAGE_BACKEND", "json", {"json", "sqlite"}),
         sqlite_db_path=sqlite_db_path.resolve(),
     )

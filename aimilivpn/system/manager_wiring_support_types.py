@@ -31,6 +31,7 @@ class ThreadRuntimeWiring:
     lock: Any
     maintenance_lock: Any
     maintain_valid_nodes: Callable[[bool], Any]
+    on_thread_error: Callable[[str, BaseException], None]
 
 
 @dataclass(frozen=True)

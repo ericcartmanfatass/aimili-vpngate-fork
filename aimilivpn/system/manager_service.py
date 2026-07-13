@@ -40,6 +40,8 @@ class ManagerServiceRuntime:
     print_line: Callable[[str], None]
     set_stdout: Callable[[Any], None]
     set_stderr: Callable[[Any], None]
+    shutdown_background_threads: Callable[[], None]
+    stop_active_openvpn: Callable[[], None]
     tee_factory: Callable[[str], Any] = Tee
     _runtime: VpnGateServiceRuntime | None = field(default=None, init=False)
 
@@ -76,6 +78,8 @@ class ManagerServiceRuntime:
                 print_line=self.print_line,
                 set_stdout=self.set_stdout,
                 set_stderr=self.set_stderr,
+                shutdown_background_threads=self.shutdown_background_threads,
+                stop_active_openvpn=self.stop_active_openvpn,
                 tee_factory=self.tee_factory,
             )
         return self._runtime

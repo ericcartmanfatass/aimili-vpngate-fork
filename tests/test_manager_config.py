@@ -61,6 +61,7 @@ class ManagerConfigTests(unittest.TestCase):
         data_dir = Path("sample-data").resolve()
         env = {
             "VPNGATE_DATA_DIR": str(data_dir),
+            "VPNGATE_API_URL": "https://example.test/vpngate.csv",
             "FETCH_INTERVAL_SECONDS": "10",
             "CHECK_INTERVAL_SECONDS": "11",
             "TARGET_VALID_NODES": "4",
@@ -94,6 +95,10 @@ class ManagerConfigTests(unittest.TestCase):
 
         self.assertEqual(config.root_dir, root)
         self.assertEqual(config.paths.data_dir, data_dir)
+        self.assertEqual(config.api_url, "https://example.test/vpngate.csv")
+        self.assertEqual(config.app_config.data_dir, config.paths.data_dir)
+        self.assertEqual(config.app_config.api_url, config.api_url)
+        self.assertEqual(config.app_config.local_proxy_port, config.local_proxy_port)
         self.assertEqual(config.fetch_interval_seconds, 10)
         self.assertEqual(config.check_interval_seconds, 11)
         self.assertEqual(config.target_valid_nodes, 4)

@@ -6,6 +6,8 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from aimilivpn.core.connection_state import ConnectionPhase
+
 
 DaemonTask = tuple[Callable[..., Any], tuple[Any, ...]]
 
@@ -41,6 +43,7 @@ def build_initial_state(
         "check_interval_seconds": check_interval_seconds,
         "local_proxy": format_proxy_url(local_proxy_host, local_proxy_port),
         "active_openvpn_node_id": "",
+        "connection_state": ConnectionPhase.FETCHING.value,
         "last_fetch_status": "starting",
         "last_check_message": last_check_message,
         "is_connecting": True,

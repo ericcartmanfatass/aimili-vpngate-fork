@@ -55,6 +55,7 @@ def build_connection_runtime(ctx: object) -> None:
         maintenance_test_limit=lambda: ctx.max_maintenance_test_nodes,
         node_test_workers=lambda: ctx.node_test_workers,
         exclude_datacenter=lambda: ctx.exclude_datacenter,
+        set_connection_phase=ctx.set_connection_phase,
     ))
     ctx.clear_active_connection_state = ctx.manager_connection_runtime.clear_active_connection_state
     ctx.get_is_connecting = ctx.manager_connection_runtime.get_is_connecting
@@ -97,6 +98,8 @@ def build_monitoring_runtime(ctx: object) -> None:
         proxy_port=lambda: ctx.local_proxy_port,
         ping_latency_ms=vpn_utils.ping_latency_ms,
         parse_int=parse_int,
+        stop_requested=ctx.stop_requested,
+        wait_for_stop=ctx.wait_for_stop,
     ))
     ctx.monitoring_runtime = ctx.manager_monitoring_runtime.runtime
     ctx.set_collector_heartbeat = ctx.manager_monitoring_runtime.set_collector_heartbeat

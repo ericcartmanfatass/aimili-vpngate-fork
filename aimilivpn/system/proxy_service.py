@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import socket
 import threading
-import time
 
 import vpn_utils
 from aimilivpn.system.proxy_config import (
@@ -14,7 +13,14 @@ from aimilivpn.system.proxy_config import (
 from aimilivpn.system.proxy_protocol import proxy_client
 
 
-def start_proxy_server(host: str, port: int, bind_dev: str = "tun0") -> None:
+def start_proxy_server(
+    host: str,
+    port: int,
+    bind_dev: str = "tun0",
+    *,
+    stop_event: threading.Event | None = None,
+) -> None:
+    shutdown = stop_event or threading.Event()
     set_bind_device(bind_dev)
     is_ipv6 = ":" in host or host == ""
     af = socket.AF_INET6 if is_ipv6 else socket.AF_INET
@@ -29,6 +35,7 @@ def start_proxy_server(host: str, port: int, bind_dev: str = "tun0") -> None:
                 pass
         server.bind((host, port))
         server.listen(256)
+        server.settimeout(1.0)
         print(f"HTTP/SOCKS5 proxy listening on {host}:{port} (bind dev: {bind_device_name()})", flush=True)
     except Exception as e:
         if server is not None:
@@ -43,6 +50,7 @@ def start_proxy_server(host: str, port: int, bind_dev: str = "tun0") -> None:
                 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 server.bind(("0.0.0.0", port))
                 server.listen(256)
+                server.settimeout(1.0)
                 print(f"HTTP/SOCKS5 proxy listening on 0.0.0.0:{port} (IPv4 fallback)", flush=True)
             except Exception as ex:
                 diag = vpn_utils.diagnose_local_obstructions(port, host="0.0.0.0")
@@ -56,6 +64,7 @@ def start_proxy_server(host: str, port: int, bind_dev: str = "tun0") -> None:
                 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 server.bind(("127.0.0.1", port))
                 server.listen(256)
+                server.settimeout(1.0)
                 print(f"HTTP/SOCKS5 proxy listening on 127.0.0.1:{port} (IPv4 fallback)", flush=True)
             except Exception as ex:
                 diag = vpn_utils.diagnose_local_obstructions(port, host="127.0.0.1")
@@ -68,9 +77,19 @@ def start_proxy_server(host: str, port: int, bind_dev: str = "tun0") -> None:
             print(f"[ERROR] Failed to start HTTP/SOCKS5 proxy on {host}:{port}: {diag_msg}", flush=True)
             return
 
-    while True:
-        try:
-            client, address = server.accept()
+    try:
+        while not shutdown.is_set():
+            try:
+                client, address = server.accept()
+            except socket.timeout:
+                continue
+            except OSError as exc:
+                if shutdown.is_set():
+                    break
+                print(f"[ERROR] Proxy accept failed: {exc}", flush=True)
+                if shutdown.wait(0.5):
+                    break
+                continue
             if not proxy_connection_sem.acquire(blocking=False):
                 print(
                     f"[proxy rate limit] current connections reached {MAX_PROXY_CONNECTIONS}; rejecting client {address}",
@@ -89,6 +108,8 @@ def start_proxy_server(host: str, port: int, bind_dev: str = "tun0") -> None:
                     proxy_connection_sem.release()
 
             threading.Thread(target=run_client, daemon=True).start()
-        except Exception as e:
-            print(f"[ERROR] Proxy accept failed: {e}", flush=True)
-            time.sleep(0.5)
+    finally:
+        try:
+            server.close()
+        except OSError:
+            pass

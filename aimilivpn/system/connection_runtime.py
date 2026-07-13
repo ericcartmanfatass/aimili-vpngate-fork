@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from aimilivpn.core.connection import connection_failure_state, mark_connection_failed, prepare_connection_target
+from aimilivpn.core.connection_state import ConnectionPhase
 
 
 @dataclass
@@ -25,6 +26,11 @@ class ActiveConnectionRuntimeFacade:
     log_line: Callable[[str, str], None] | None = None
     print_line: Callable[[str], None] = print
     inactive_latency_label: str = "无活动连接"
+    set_connection_phase: Callable[[ConnectionPhase | str, str, str], None] | None = None
+
+    def transition(self, phase: ConnectionPhase, message: str = "", node_id: str = "") -> None:
+        if self.set_connection_phase is not None:
+            self.set_connection_phase(phase, message, node_id)
 
     def begin_connect(
         self,
@@ -44,6 +50,7 @@ class ActiveConnectionRuntimeFacade:
             active_node_latency=active_node_latency,
             last_check_message=last_check_message.format(node_id=node_id),
         )
+        self.transition(ConnectionPhase.CONNECTING, last_check_message.format(node_id=node_id), node_id)
         return True
 
     def finish_connecting(self) -> bool:
@@ -84,7 +91,8 @@ class ActiveConnectionRuntimeFacade:
         if self.log_line:
             self.log_line("ERROR", log_message_template.format(node_id=node_id, message=message))
         self.print_line(print_message_template.format(node_id=node_id, message=message))
-        self.set_state(**connection_failure_state(message))
+        self.set_state(**connection_failure_state("connection could not be established"))
+        self.transition(ConnectionPhase.FAILED, "connection failed")
         return ""
 
     def register_active_process(
@@ -132,4 +140,5 @@ class ActiveConnectionRuntimeFacade:
             active_node_latency=self.inactive_latency_label,
             last_check_message=message,
         )
+        self.transition(ConnectionPhase.FAILED, message)
         return None, ""

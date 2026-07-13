@@ -57,6 +57,10 @@ authoritative release signal.
   boundaries, and session revocation: `tests/test_console_routes.py`,
   `tests/test_console_security.py`, `tests/test_console_server_wrapper.py`, and
   `tests/test_console_modules.py`.
+- Runtime configuration, connection-state transitions, background shutdown, and
+  safe API error mapping: `tests/test_manager_config.py`,
+  `tests/test_connection_state.py`, `tests/test_manager_threads.py`,
+  `tests/test_service_runtime.py`, and `tests/test_api_errors.py`.
 - Console/Web listen defaults: `tests/test_console_modules.py`,
   `tests/test_ui_config.py`, and the stage-specific tests added with network
   hardening.

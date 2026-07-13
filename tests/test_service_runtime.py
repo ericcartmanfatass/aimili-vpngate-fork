@@ -46,6 +46,8 @@ class ServiceRuntimeTests(unittest.TestCase):
             print_line=lambda message: calls.setdefault("messages", []).append(message),
             set_stdout=lambda stream: calls.__setitem__("stdout", stream),
             set_stderr=lambda stream: calls.__setitem__("stderr", stream),
+            shutdown_background_threads=lambda: calls.__setitem__("threads_shutdown", True),
+            stop_active_openvpn=lambda: calls.__setitem__("connection_stopped", True),
             tee_factory=lambda path: calls.setdefault("tee_paths", []).append(path) or object(),
         )
 
@@ -66,6 +68,8 @@ class ServiceRuntimeTests(unittest.TestCase):
         self.assertEqual(state["allowed_countries"], ["JP", "KR"])
         self.assertEqual(calls["served"], ("127.0.0.1", 9000, "runtime"))
         self.assertEqual(len(calls["daemon_tasks"]), 4)
+        self.assertTrue(calls["threads_shutdown"])
+        self.assertTrue(calls["connection_stopped"])
         self.assertIn("代理网关已成功启动监听", "\n".join(calls["messages"]))
 
     def test_main_reports_gateway_timeout_but_continues(self) -> None:
@@ -77,6 +81,18 @@ class ServiceRuntimeTests(unittest.TestCase):
 
         self.assertIn("代理网关启动超时", "\n".join(calls["messages"]))
         self.assertIn("served", calls)
+
+    def test_main_always_stops_threads_and_connection_after_web_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            calls: dict[str, Any] = {}
+            runtime = self.build_runtime(Path(raw_tmp), calls)
+            runtime.serve_web_forever = lambda host, port, web: (_ for _ in ()).throw(RuntimeError("boom"))
+
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                runtime.main()
+
+        self.assertTrue(calls["threads_shutdown"])
+        self.assertTrue(calls["connection_stopped"])
 
     def test_tee_writes_to_stdout_and_file(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

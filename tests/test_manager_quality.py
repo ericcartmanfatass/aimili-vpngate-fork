@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 from unittest.mock import Mock, sentinel, patch
 
 from aimilivpn.system import quality_runtime
@@ -11,7 +10,7 @@ from aimilivpn.system.manager_quality import ManagerQualityRuntime
 class ManagerQualityRuntimeTests(unittest.TestCase):
     def make_runtime(self) -> ManagerQualityRuntime:
         return ManagerQualityRuntime(
-            root_dir=Path("sample-root"),
+            app_config=sentinel.config,
             quality_repository=sentinel.quality_repository,
             region_repository=sentinel.region_repository,
             region_target_id=Mock(name="region_target_id"),
@@ -21,11 +20,10 @@ class ManagerQualityRuntimeTests(unittest.TestCase):
             test_multiple_nodes=Mock(name="test_multiple_nodes"),
         )
 
-    def test_get_scamalytics_provider_loads_config_and_caches_result(self) -> None:
+    def test_get_scamalytics_provider_uses_injected_config_and_caches_result(self) -> None:
         runtime = self.make_runtime()
 
         with (
-            patch("aimilivpn.system.manager_quality.load_config", return_value=sentinel.config) as load_config,
             patch.object(
                 quality_runtime,
                 "configured_scamalytics_provider",
@@ -36,7 +34,6 @@ class ManagerQualityRuntimeTests(unittest.TestCase):
 
         self.assertIs(provider, sentinel.provider)
         self.assertIs(runtime._scamalytics_provider, sentinel.provider)
-        load_config.assert_called_once_with(Path("sample-root"))
         configured_provider.assert_called_once_with(sentinel.config, None)
 
     def test_record_quality_result_from_probe_uses_runtime_repository(self) -> None:
@@ -82,14 +79,14 @@ class ManagerQualityRuntimeTests(unittest.TestCase):
             test_multiple_nodes=runtime.test_multiple_nodes,
         )
 
-    def test_quality_provider_status_uses_root_dir(self) -> None:
+    def test_quality_provider_status_uses_injected_config(self) -> None:
         runtime = self.make_runtime()
 
         with patch.object(quality_runtime, "provider_status", return_value={"providers": []}) as provider_status:
             result = runtime.quality_provider_status()
 
         self.assertEqual(result, {"providers": []})
-        provider_status.assert_called_once_with(Path("sample-root"))
+        provider_status.assert_called_once_with(sentinel.config)
 
 
 if __name__ == "__main__":

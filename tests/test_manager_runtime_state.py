@@ -7,6 +7,7 @@ from unittest.mock import Mock, sentinel, patch
 
 from aimilivpn.system.manager_runtime_state import ManagerRuntimeState
 from aimilivpn.system.manager_state import ManagerMutableState
+from aimilivpn.core.connection_state import ConnectionPhase
 
 
 class ManagerRuntimeStateTests(unittest.TestCase):
@@ -68,6 +69,18 @@ class ManagerRuntimeStateTests(unittest.TestCase):
 
         store.get_state.assert_called_once_with()
         store.set_state.assert_called_once_with(last_check_message="updated")
+
+    def test_connection_phase_uses_shared_state_model(self) -> None:
+        runtime = self.make_runtime()
+        with patch.object(runtime, "set_state") as set_state:
+            runtime.set_connection_phase(ConnectionPhase.CONNECTING, "connecting", "jp_1")
+
+        set_state.assert_called_once_with(
+            connection_state="connecting",
+            is_connecting=True,
+            last_check_message="connecting",
+            active_openvpn_node_id="jp_1",
+        )
 
 
 if __name__ == "__main__":

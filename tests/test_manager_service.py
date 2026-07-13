@@ -40,6 +40,8 @@ class ManagerServiceRuntimeTests(unittest.TestCase):
             print_line=Mock(name="print_line"),
             set_stdout=Mock(name="set_stdout"),
             set_stderr=Mock(name="set_stderr"),
+            shutdown_background_threads=Mock(name="shutdown_background_threads"),
+            stop_active_openvpn=Mock(name="stop_active_openvpn"),
             tee_factory=Mock(name="tee_factory"),
         )
 
@@ -58,6 +60,8 @@ class ManagerServiceRuntimeTests(unittest.TestCase):
         self.assertIs(kwargs["kill_existing_openvpn_processes"], runtime.kill_existing_openvpn_processes)
         self.assertIs(kwargs["collector_loop"], runtime.collector_loop)
         self.assertIs(kwargs["web_server_runtime"], runtime.web_server_runtime)
+        self.assertIs(kwargs["shutdown_background_threads"], runtime.shutdown_background_threads)
+        self.assertIs(kwargs["stop_active_openvpn"], runtime.stop_active_openvpn)
         self.assertIs(kwargs["tee_factory"], runtime.tee_factory)
 
     def test_main_delegates_to_cached_runtime(self) -> None:

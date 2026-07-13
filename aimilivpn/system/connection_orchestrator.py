@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from aimilivpn.core.connection_state import ConnectionPhase
 from aimilivpn.system import connection_connect, connection_maintenance, connection_switching
 from aimilivpn.system.connection_runtime import ActiveConnectionRuntimeFacade
 
@@ -56,6 +57,11 @@ class ConnectionOrchestrator:
     maintenance_test_limit: Callable[[], int]
     node_test_workers: Callable[[], int]
     exclude_datacenter: Callable[[], bool]
+    set_connection_phase: Callable[[ConnectionPhase | str, str, str], None] | None = None
+
+    def transition(self, phase: ConnectionPhase, message: str = "", node_id: str = "") -> None:
+        if self.set_connection_phase is not None:
+            self.set_connection_phase(phase, message, node_id)
 
     def auto_switch_node(self, attempt: int = 0) -> None:
         connection_switching.auto_switch_node(self, attempt)

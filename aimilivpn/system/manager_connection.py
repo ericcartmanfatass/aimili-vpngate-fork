@@ -6,6 +6,7 @@ from typing import Any, Callable
 import subprocess
 
 from aimilivpn.core.connection import clear_active_flags, delete_file_if_exists, find_active_config_file
+from aimilivpn.core.connection_state import ConnectionPhase
 from aimilivpn.system.connection_orchestrator import ConnectionOrchestrator
 from aimilivpn.system.connection_runtime import ActiveConnectionRuntimeFacade
 from aimilivpn.system.manager_state import ManagerMutableState
@@ -54,6 +55,7 @@ class ManagerConnectionRuntime:
     maintenance_test_limit: Callable[[], int]
     node_test_workers: Callable[[], int]
     exclude_datacenter: Callable[[], bool]
+    set_connection_phase: Callable[[ConnectionPhase | str, str, str], None] | None = None
     _connection_runtime_facade: ActiveConnectionRuntimeFacade | None = field(default=None, init=False)
     _connection_orchestrator: ConnectionOrchestrator | None = field(default=None, init=False)
 
@@ -74,6 +76,7 @@ class ManagerConnectionRuntime:
                 run_exclusive=self.run_locked,
                 log_line=self.log_vpn_line,
                 print_line=self.print_line,
+                set_connection_phase=self.set_connection_phase,
             )
         return self._connection_runtime_facade
 
@@ -126,6 +129,7 @@ class ManagerConnectionRuntime:
                 maintenance_test_limit=self.maintenance_test_limit,
                 node_test_workers=self.node_test_workers,
                 exclude_datacenter=self.exclude_datacenter,
+                set_connection_phase=self.set_connection_phase,
             )
         return self._connection_orchestrator
 

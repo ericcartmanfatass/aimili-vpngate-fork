@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from aimilivpn.core.connection_state import normalize_connection_phase
 from aimilivpn.system.startup import format_proxy_url
 
 
@@ -49,6 +50,11 @@ class RuntimeStateStore:
         state.pop("password", None)
         state["active_openvpn_node_id"] = self.active_node_id()
         state["is_connecting"] = self.is_connecting()
+        state["connection_state"] = normalize_connection_phase(
+            state.get("connection_state"),
+            is_connecting=state["is_connecting"],
+            active_node_id=state["active_openvpn_node_id"],
+        )
         state.setdefault("api_url", self.api_url)
         state["instance_id"] = self.instance_id
         state["tun_dev"] = self.tun_dev

@@ -116,6 +116,20 @@ class WebRequestHandlerTests(unittest.TestCase):
         self.assertNotIn("private123", output.getvalue())
         self.assertIn("/<secret-path>/api/status", output.getvalue())
 
+    def test_dispatch_maps_unexpected_exception_without_echoing_details(self) -> None:
+        handler = build_handler(build_runtime())
+        responses: list[tuple[dict[str, object], HTTPStatus]] = []
+        handler.send_json = lambda payload, status: responses.append((payload, status))  # type: ignore[method-assign]
+
+        handler.dispatch_safely(
+            lambda: (_ for _ in ()).throw(RuntimeError("private filesystem and password detail"))
+        )
+
+        payload, status = responses[-1]
+        self.assertEqual(status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(payload["error_code"], "internal_error")
+        self.assertNotIn("private filesystem", str(payload))
+
 
 if __name__ == "__main__":
     unittest.main()

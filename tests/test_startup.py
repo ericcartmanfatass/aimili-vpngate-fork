@@ -51,6 +51,7 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(state["local_proxy"], "http://[::1]:7928")
         self.assertEqual(state["last_fetch_status"], "starting")
         self.assertTrue(state["is_connecting"])
+        self.assertEqual(state["connection_state"], "fetching")
 
     def test_wait_for_gateway_succeeds_after_retry(self) -> None:
         outcomes = [False, True]

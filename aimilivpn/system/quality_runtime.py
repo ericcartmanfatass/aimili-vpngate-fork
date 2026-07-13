@@ -43,8 +43,9 @@ def configured_scamalytics_provider(config: AppConfig, current: ScamalyticsProvi
     return current
 
 
-def provider_status(root_dir: Path) -> dict[str, Any]:
-    return build_quality_provider_status(load_config(root_dir))
+def provider_status(config: AppConfig | Path) -> dict[str, Any]:
+    resolved = config if isinstance(config, AppConfig) else load_config(config)
+    return build_quality_provider_status(resolved)
 
 
 def enrich_with_scamalytics(result: QualityResult, provider_getter: ProviderGetter) -> QualityResult:

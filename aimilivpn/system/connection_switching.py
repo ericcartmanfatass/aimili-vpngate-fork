@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from aimilivpn.core.connection_state import ConnectionPhase
 from aimilivpn.core.connection import (
     auto_switch_block_reason,
     auto_switch_connect_message,
@@ -13,16 +14,20 @@ from aimilivpn.core.nodes import select_auto_switch_candidates
 
 
 def auto_switch_node(ctx: Any, attempt: int = 0) -> None:
+    ctx.transition(ConnectionPhase.SWITCHING, "selecting replacement node")
     if attempt >= 3:
+        ctx.transition(ConnectionPhase.FAILED, "automatic switching exhausted")
         ctx.print_line("[自动切换] 连续切换失败已达 3 次，停止切换以防止主线程死锁，将在后台重新加载节点...")
         return
 
     ui_cfg = ctx.load_ui_config()
     block_reason = auto_switch_block_reason(ui_cfg)
     if block_reason == "disabled":
+        ctx.transition(ConnectionPhase.IDLE, "connection disabled")
         ctx.print_line("[自动切换] 连接已禁用，不进行自动切换。")
         return
     if block_reason == "fixed_ip":
+        ctx.transition(ConnectionPhase.IDLE, "fixed IP mode")
         ctx.print_line("[自动切换] 当前处于固定 IP 模式，不进行自动连接或切换。")
         return
 
@@ -71,6 +76,7 @@ def auto_switch_node(ctx: Any, attempt: int = 0) -> None:
 
     ctx.run_locked(clear_nodes)
     ctx.set_state(active_openvpn_node_id="", last_check_message=msg)
+    ctx.transition(ConnectionPhase.FAILED, msg)
 
     def bg_fetch_and_switch() -> None:
         try:

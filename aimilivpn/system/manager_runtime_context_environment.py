@@ -5,6 +5,7 @@ from typing import Any
 from aimilivpn.system.manager_config import build_manager_runtime_environment
 
 CONFIG_ATTRIBUTES = (
+    "app_config",
     "api_url",
     "fetch_interval_seconds",
     "check_interval_seconds",
