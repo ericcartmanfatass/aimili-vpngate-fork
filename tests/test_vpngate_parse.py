@@ -6,6 +6,7 @@ from pathlib import Path
 
 from aimilivpn.core.config import AppConfig
 from aimilivpn.providers.vpngate import (
+    country_catalog_from_text,
     decode_config,
     parse_legacy_candidates,
     parse_legacy_candidates_filtered,
@@ -35,6 +36,24 @@ class VpngateProviderTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["HostName"], "srv")
         self.assertEqual(rows[0]["CountryShort"], "JP")
+
+    def test_country_catalog_uses_valid_unique_vpngate_nodes(self) -> None:
+        encoded = base64.b64encode(CONFIG.encode("utf-8")).decode("ascii")
+        text = (
+            "#HostName,IP,CountryShort,CountryLong,OpenVPN_ConfigData_Base64\n"
+            f"jp1,203.0.113.1,JP,Japan,{encoded}\n"
+            f"jp2,203.0.113.1,JP,Japan,{encoded}\n"
+            f"de1,203.0.113.2,DE,Germany,{encoded}\n"
+            f"bad,203.0.113.3,INVALID,Invalid,{encoded}\n"
+            "empty,203.0.113.4,FR,France,\n"
+        )
+
+        catalog = country_catalog_from_text(text, max_scan_rows=20)
+
+        self.assertEqual(catalog, [
+            {"country": "DE", "name": "Germany", "node_count": 1},
+            {"country": "JP", "name": "Japan", "node_count": 1},
+        ])
 
     def test_decode_config_sanitizes_base64(self) -> None:
         encoded = base64.b64encode(CONFIG.encode("utf-8")).decode("ascii")

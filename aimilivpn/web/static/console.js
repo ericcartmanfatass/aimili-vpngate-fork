@@ -90,17 +90,17 @@ function renderSidebar() {
 
 function renderCatalogForm() {
   const panel = el("instanceManager");
-  const available = instanceCatalog.filter(item => !item.installed);
-  const title = dom("h3", "", "Add verified instance");
-  const hint = dom("p", "muted", "Only backend-verified JP/KR/US catalog entries can be created.");
+  const available = instanceCatalog.filter(item => !item.installed && item.creatable !== false && Number(item.node_count || 0) > 0);
+  const title = dom("h3", "", "Add VPNGate country instance");
+  const hint = dom("p", "muted", "Countries come from the latest VPNGate response. System resources are allocated and validated by the backend.");
   if (!available.length) {
-    panel.replaceChildren(title, hint, dom("div", "empty-state", "All verified instances are installed."));
+    panel.replaceChildren(title, hint, dom("div", "empty-state", "No additional VPNGate countries are currently available. Refresh nodes and try again."));
     return;
   }
   const select = dom("select");
   select.id = "catalogCountry";
   for (const item of available) {
-    const option = dom("option", "", `${item.country} (${item.id})`);
+    const option = dom("option", "", `${item.name || item.country} (${item.country}) · ${item.node_count || 0} nodes`);
     option.value = item.country;
     select.append(option);
   }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,6 +71,7 @@ def build_facade(root: Path, **overrides: object) -> VpnGateFetchFacade:
         "get_upstream_proxy_auth": lambda: (None, None),
         "country_translations": {"Japan": "日本"},
         "safe_name": lambda value: value.replace(".", "_"),
+        "country_catalog_file": root / "country_catalog.json",
         "sleep": lambda seconds: None,
         "now": lambda: 100.0,
         "urlopen": lambda *args, **kwargs: FakeResponse(sample_api_text().encode("utf-8")),
@@ -119,6 +121,21 @@ class VpnGateFetchFacadeTests(unittest.TestCase):
             self.assertEqual(nodes[0]["remote_port"], 443)
             self.assertEqual(states[-1]["last_fetch_status"], "ok")
             self.assertTrue(any(level == "INFO" for level, _ in logs))
+            catalog = json.loads((Path(tmp) / "country_catalog.json").read_text(encoding="utf-8"))
+            self.assertEqual(catalog["countries"][0]["country"], "JP")
+            self.assertEqual(catalog["countries"][0]["node_count"], 1)
+
+    def test_country_catalog_scans_the_complete_response(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            facade = build_facade(root, max_scan_rows=1)
+            first = sample_api_text("203.0.113.1", "JP").splitlines()
+            second = sample_api_text("203.0.113.2", "DE").splitlines()
+
+            facade._write_country_catalog("\n".join([first[0], first[1], second[1]]) + "\n")
+
+            catalog = json.loads((root / "country_catalog.json").read_text(encoding="utf-8"))
+            self.assertEqual({item["country"] for item in catalog["countries"]}, {"DE", "JP"})
 
     def test_fetch_candidates_records_diagnostic_on_failure(self) -> None:
         states: list[dict[str, object]] = []

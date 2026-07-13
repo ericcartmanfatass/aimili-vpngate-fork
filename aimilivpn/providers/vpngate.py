@@ -32,6 +32,38 @@ def parse_vpngate_rows(text: str) -> list[dict[str, str]]:
     return list(csv.DictReader(lines))
 
 
+def country_catalog_from_text(
+    text: str,
+    *,
+    max_scan_rows: int | None = None,
+) -> list[dict[str, Any]]:
+    countries: dict[str, dict[str, Any]] = {}
+    seen_nodes: set[tuple[str, str]] = set()
+    rows = parse_vpngate_rows(text)
+    if max_scan_rows is not None:
+        rows = rows[:max_scan_rows]
+    for row in rows:
+        code = str(row.get("CountryShort") or "").strip().upper()
+        ip = str(row.get("IP") or "").strip()
+        encoded = str(row.get("OpenVPN_ConfigData_Base64") or "").strip()
+        if not re.fullmatch(r"[A-Z]{2}", code) or not ip or not encoded:
+            continue
+        key = (code, ip)
+        if key in seen_nodes:
+            continue
+        seen_nodes.add(key)
+        entry = countries.setdefault(
+            code,
+            {
+                "country": code,
+                "name": str(row.get("CountryLong") or code).strip() or code,
+                "node_count": 0,
+            },
+        )
+        entry["node_count"] += 1
+    return sorted(countries.values(), key=lambda item: (str(item["name"]).lower(), item["country"]))
+
+
 def decode_config(encoded: str) -> str:
     decoded = base64.b64decode(encoded.encode("ascii"), validate=False).decode("utf-8", errors="replace")
     return sanitize_ovpn_config(decoded)

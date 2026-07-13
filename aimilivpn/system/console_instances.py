@@ -113,6 +113,42 @@ def load_instances() -> list[dict[str, Any]]:
     return instances
 
 
+def load_available_country_catalog() -> list[dict[str, Any]]:
+    countries: dict[str, dict[str, Any]] = {}
+    instances = load_instances()
+    for instance in instances:
+        path = Path(instance["data_dir"]) / "country_catalog.json"
+        payload = read_json(path, {})
+        entries = payload.get("countries") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            continue
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("country") or "").strip().upper()
+            if not re.fullmatch(r"[A-Z]{2}", code):
+                continue
+            try:
+                node_count = max(0, int(item.get("node_count") or 0))
+            except (TypeError, ValueError):
+                node_count = 0
+            existing = countries.setdefault(
+                code,
+                {
+                    "country": code,
+                    "name": str(item.get("name") or code).strip() or code,
+                    "node_count": 0,
+                },
+            )
+            existing["node_count"] = max(int(existing["node_count"]), node_count)
+
+    for instance in instances:
+        code = str(instance.get("country") or "").strip().upper()
+        if re.fullmatch(r"[A-Z]{2}", code):
+            countries.setdefault(code, {"country": code, "name": code, "node_count": 0})
+    return sorted(countries.values(), key=lambda item: (str(item["name"]).lower(), item["country"]))
+
+
 def instance_by_id(instance_id: str) -> dict[str, Any] | None:
     if not is_valid_instance_id(instance_id):
         return None

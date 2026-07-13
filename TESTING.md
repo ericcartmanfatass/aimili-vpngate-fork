@@ -78,7 +78,8 @@ authoritative release signal.
   hardening.
 - Installer and systemd static checks: `tests/test_install_script.py` plus
   `bash -n install.sh scripts/build-release.sh` in CI.
-- Verified source pinning, JP-only defaults, instance catalog create/delete
+- Verified source pinning, JP-only install defaults, full-response VPNGate
+  country discovery, dynamic resource persistence, instance create/delete
   rollback, resource conflicts, data retention, and sysctl restoration:
   `tests/test_install_script.py`, `tests/test_instance_lifecycle.py`,
   `tests/test_console_routes.py`, and `tests/test_cli_parser.py`.

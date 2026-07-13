@@ -169,7 +169,7 @@ test("malicious instance metadata remains text in Console DOM", async () => {
   const malicious = `<img src=x onerror="globalThis.pwned=true">`;
   const fetch = async url => {
     const payload = url.endsWith("instance-catalog")
-      ? { catalog: [{ country: "KR", id: "kr", installed: false, proxy_port: 7929, tun_dev: "tun11", policy_table: 111 }] }
+      ? { catalog: [{ country: "DE", name: "Germany", id: "de", node_count: 4, creatable: true, installed: false, proxy_port: 7931, tun_dev: "tun13", policy_table: 113 }] }
       : { instances: [{ id: "jp", country: malicious, proxy_port: 7928, tun_dev: malicious, policy_table: 110, service_active: true, state: { last_check_message: malicious } }] };
     return { ok: true, status: 200, text: async () => JSON.stringify(payload) };
   };

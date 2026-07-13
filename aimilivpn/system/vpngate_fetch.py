@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import ssl
 import time
 import urllib.request
@@ -27,6 +29,7 @@ class VpnGateFetchFacade:
     get_upstream_proxy_auth: Callable[[], tuple[str | None, str | None]]
     country_translations: dict[str, str]
     safe_name: Callable[[str], str]
+    country_catalog_file: Path | None = None
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
     urlopen: Callable[..., Any] = urllib.request.urlopen
@@ -115,6 +118,7 @@ class VpnGateFetchFacade:
                     print(f"[fetch_candidates] {message}", flush=True)
                     self.log_line("INFO", message)
                     api_text = self.fetch_api_text(url, verify_ssl)
+                    self._write_country_catalog(api_text)
                     parsed_nodes, seen_ips, warnings = vpngate_provider.parse_legacy_candidates_filtered(
                         api_text,
                         self.config_dir,
@@ -161,3 +165,23 @@ class VpnGateFetchFacade:
         )
         self.log_line("INFO", f"成功获取官方 API 节点，共 {len(candidates)} 个候选节点")
         return candidates
+
+    def _write_country_catalog(self, api_text: str) -> None:
+        countries = vpngate_provider.country_catalog_from_text(api_text)
+        if not countries:
+            return
+        path = self.country_catalog_file or (self.config_dir.parent / "country_catalog.json")
+        payload = json.dumps(
+            {"version": 1, "updated_at": self.now(), "countries": countries},
+            ensure_ascii=False,
+            indent=2,
+        ).encode("utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.tmp")
+        try:
+            temporary.write_bytes(payload)
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
+            os.chmod(path, 0o600)
+        finally:
+            temporary.unlink(missing_ok=True)

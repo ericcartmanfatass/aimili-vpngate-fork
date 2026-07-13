@@ -23,7 +23,11 @@ class FakeSystemctl:
         return SimpleNamespace(returncode=1 if failed else 0)
 
 
-def build_lifecycle(root: Path, runner: FakeSystemctl) -> InstanceLifecycle:
+def build_lifecycle(
+    root: Path,
+    runner: FakeSystemctl,
+    countries: list[dict[str, object]] | None = None,
+) -> InstanceLifecycle:
     config_dir = root / "etc" / "aimilivpn"
     install_dir = root / "opt" / "aimilivpn"
     config_dir.mkdir(parents=True)
@@ -36,11 +40,12 @@ def build_lifecycle(root: Path, runner: FakeSystemctl) -> InstanceLifecycle:
         token_file=config_dir / "instance_api_token",
         systemctl=runner,
         lock=threading.RLock(),
+        country_catalog=(lambda: list(countries)) if countries is not None else None,
     )
 
 
 class InstanceLifecycleTests(unittest.TestCase):
-    def test_catalog_allows_only_verified_templates(self) -> None:
+    def test_legacy_catalog_fallback_preserves_preferred_countries(self) -> None:
         with TemporaryDirectory() as tmp:
             lifecycle = build_lifecycle(Path(tmp), FakeSystemctl())
 
@@ -68,7 +73,7 @@ class InstanceLifecycleTests(unittest.TestCase):
             self.assertIn(["daemon-reload"], runner.calls)
             self.assertIn(["enable", "--now", "aimilivpn@us.service"], runner.calls)
 
-    def test_duplicate_and_resource_conflicts_are_rejected(self) -> None:
+    def test_duplicate_is_rejected_and_catalog_conflict_uses_next_slot(self) -> None:
         with TemporaryDirectory() as tmp:
             lifecycle = build_lifecycle(Path(tmp), FakeSystemctl())
             lifecycle.create("JP")
@@ -79,8 +84,10 @@ class InstanceLifecycleTests(unittest.TestCase):
             payload = json.loads(lifecycle.instances_file.read_text(encoding="utf-8"))
             payload["instances"][0]["proxy_port"] = 7929
             lifecycle.instances_file.write_text(json.dumps(payload), encoding="utf-8")
-            with self.assertRaisesRegex(LifecycleError, "resource conflict"):
-                lifecycle.validate_create("US")
+            selected = lifecycle.validate_create("US")
+
+            self.assertEqual(selected["tun_dev"], "tun13")
+            self.assertEqual(selected["proxy_port"], 7931)
 
     def test_host_resource_probe_blocks_creation(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -89,6 +96,62 @@ class InstanceLifecycleTests(unittest.TestCase):
 
             with self.assertRaisesRegex(LifecycleError, "host resource conflict: ui_port"):
                 lifecycle.create("US")
+
+    def test_dynamic_catalog_uses_vpngate_countries_and_reserves_legacy_slots(self) -> None:
+        countries = [
+            {"country": "JP", "name": "Japan", "node_count": 5},
+            {"country": "DE", "name": "Germany", "node_count": 3},
+            {"country": "FR", "name": "France", "node_count": 2},
+        ]
+        with TemporaryDirectory() as tmp:
+            lifecycle = build_lifecycle(Path(tmp), FakeSystemctl(), countries)
+
+            catalog = lifecycle.catalog()
+
+        self.assertEqual({item["country"] for item in catalog}, {"JP", "DE", "FR"})
+        germany = next(item for item in catalog if item["country"] == "DE")
+        self.assertEqual(germany["id"], "de")
+        self.assertEqual(germany["node_count"], 3)
+        self.assertEqual(germany["tun_dev"], "tun13")
+        self.assertEqual(germany["policy_table"], 113)
+
+    def test_dynamic_allocations_persist_and_do_not_renumber_existing_instances(self) -> None:
+        countries = [
+            {"country": "JP", "name": "Japan", "node_count": 5},
+            {"country": "DE", "name": "Germany", "node_count": 3},
+            {"country": "FR", "name": "France", "node_count": 2},
+        ]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lifecycle = build_lifecycle(root, FakeSystemctl(), countries)
+            jp = lifecycle.create("JP")
+            germany = lifecycle.create("DE")
+
+            restarted = InstanceLifecycle(
+                config_dir=lifecycle.config_dir,
+                install_dir=lifecycle.install_dir,
+                instances_file=lifecycle.instances_file,
+                token_file=lifecycle.token_file,
+                systemctl=FakeSystemctl(),
+                lock=threading.RLock(),
+                country_catalog=lambda: list(countries),
+            )
+            france = restarted.create("FR")
+
+        self.assertEqual(jp["tun_dev"], "tun10")
+        self.assertEqual(germany["tun_dev"], "tun13")
+        self.assertEqual(france["tun_dev"], "tun14")
+
+    def test_country_missing_from_current_vpngate_catalog_is_rejected(self) -> None:
+        with TemporaryDirectory() as tmp:
+            lifecycle = build_lifecycle(
+                Path(tmp),
+                FakeSystemctl(),
+                [{"country": "DE", "name": "Germany", "node_count": 1}],
+            )
+
+            with self.assertRaisesRegex(LifecycleError, "not available"):
+                lifecycle.create("FR")
 
     def test_create_failure_rolls_back_catalog_env_and_empty_data(self) -> None:
         with TemporaryDirectory() as tmp:

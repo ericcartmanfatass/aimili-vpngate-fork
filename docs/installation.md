@@ -55,9 +55,10 @@ Rollback by checking out the prior verified tag, restoring the backups, running
 The Console listens on loopback and all lifecycle routes require a valid Console
 session. Browsers never write `/etc`, allocate ports, or generate systemd units.
 
-- `GET /api/instance-catalog` lists the verified JP/KR/US templates and whether
+- `GET /api/instance-catalog` lists countries found in the latest VPNGate
+  response, their usable node counts, allocated resource preview, and whether
   each is installed.
-- `POST /api/instances/validate` with `{"country":"US"}` validates a create.
+- `POST /api/instances/validate` with `{"country":"DE"}` validates a create.
 - `POST /api/instances` creates and starts a catalog instance atomically.
 - `GET /api/instances` and `GET /api/instances/{id}/status` query state.
 - `POST /api/instances/{id}/service` with `start`, `stop`, or `restart` controls
@@ -66,8 +67,10 @@ session. Browsers never write `/etc`, allocate ports, or generate systemd units.
   data by default. Purging data additionally requires `retain_data:false` and
   `purge_data_confirmation:"purge:id"`.
 
-Creation validates the canonical ID, TUN device, policy table, UI/proxy ports,
-environment path, and duplicates. It writes mode-0600 configuration, atomically
+Creation accepts only a current two-letter VPNGate catalog country and derives
+the canonical instance ID from it. The backend allocates a free TUN device,
+policy table, and UI/proxy ports, then validates host conflicts, environment
+paths, and duplicates. It writes mode-0600 configuration, atomically
 updates `instances.json`, runs `daemon-reload`, and uses `enable --now`. Any
 failure restores the previous catalog and removes newly-created empty resources.
 Deletion first stops and disables the service. The backend service owns policy
@@ -84,10 +87,11 @@ families/namespaces, kernel/control-group protection, and native system-call
 architecture. The backend may write only `/opt/aimilivpn/data`; the Console may
 write that data directory and `/etc/aimilivpn` for lifecycle transactions.
 
-Backend environment files are `/etc/aimilivpn/{jp,kr,us}.env` and are mode
-0600. Their resource values must match the catalog: JP uses tun10/table 110/
-7928/18788, US tun11/table 111/7929/18789, and KR tun12/table 112/7930/18790.
-The Console environment and instance API token are also mode 0600.
+Backend environment files are `/etc/aimilivpn/{country}.env` and are mode 0600.
+JP/US/KR retain their compatible preferred slots. Other countries use the first
+free managed slot starting at tun13/table 113/proxy 7931/UI 18791. Allocations
+are persisted in `instances.json` and never renumbered when the upstream country
+list changes. The Console environment and instance API token are also mode 0600.
 
 ## Network and uninstall behavior
 

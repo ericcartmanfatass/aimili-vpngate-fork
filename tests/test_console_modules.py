@@ -99,6 +99,44 @@ class ConsoleInstanceTests(unittest.TestCase):
             self.assertEqual(instances[0]["proxy_port"], 7928)
             self.assertEqual(instances[0]["secret_path"], "jpsecret")
 
+    def test_available_country_catalog_aggregates_vpngate_data_without_summing_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_jp = root / "data" / "jp"
+            data_us = root / "data" / "us"
+            data_jp.mkdir(parents=True)
+            data_us.mkdir(parents=True)
+            for instance_id, data_dir, countries in (
+                ("jp", data_jp, [{"country": "DE", "name": "Germany", "node_count": 4}]),
+                ("us", data_us, [{"country": "DE", "name": "Germany", "node_count": 3}, {"country": "FR", "name": "France", "node_count": 2}]),
+            ):
+                (root / f"{instance_id}.env").write_text("", encoding="utf-8")
+                (data_dir / "country_catalog.json").write_text(
+                    json.dumps({"countries": countries}),
+                    encoding="utf-8",
+                )
+            instances_file = root / "instances.json"
+            instances_file.write_text(
+                json.dumps({"instances": [
+                    {"id": "jp", "country": "JP", "env_file": str(root / "jp.env"), "data_dir": str(data_jp)},
+                    {"id": "us", "country": "US", "env_file": str(root / "us.env"), "data_dir": str(data_us)},
+                ]}),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(console_instances, "CONFIG_DIR", root),
+                patch.object(console_instances, "INSTALL_DIR", root),
+                patch.object(console_instances, "INSTANCES_FILE", instances_file),
+            ):
+                catalog = console_instances.load_available_country_catalog()
+
+        by_country = {item["country"]: item for item in catalog}
+        self.assertEqual(by_country["DE"]["node_count"], 4)
+        self.assertEqual(by_country["FR"]["node_count"], 2)
+        self.assertEqual(by_country["JP"]["node_count"], 0)
+        self.assertEqual(by_country["US"]["node_count"], 0)
+
     def test_normalize_instance_defaults_blank_and_invalid_env_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -12,11 +12,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-INSTANCE_TEMPLATES: dict[str, dict[str, Any]] = {
-    "JP": {"id": "jp", "tun_dev": "tun10", "policy_table": 110, "proxy_port": 7928, "ui_port": 18788},
-    "US": {"id": "us", "tun_dev": "tun11", "policy_table": 111, "proxy_port": 7929, "ui_port": 18789},
-    "KR": {"id": "kr", "tun_dev": "tun12", "policy_table": 112, "proxy_port": 7930, "ui_port": 18790},
-}
+COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
+PREFERRED_RESOURCE_SLOTS = {"JP": 0, "US": 1, "KR": 2}
+RESOURCE_SLOT_COUNT = 100
+RESOURCE_BASES = {"tun_dev": 10, "policy_table": 110, "proxy_port": 7928, "ui_port": 18788}
+LEGACY_COUNTRY_CATALOG = (
+    {"country": "JP", "name": "Japan", "node_count": 1},
+    {"country": "KR", "name": "Korea Republic of", "node_count": 1},
+    {"country": "US", "name": "United States", "node_count": 1},
+)
 
 
 class LifecycleError(RuntimeError):
@@ -36,41 +40,141 @@ class InstanceLifecycle:
     systemctl: Callable[[list[str]], Any]
     lock: threading.RLock
     resource_probe: Callable[[dict[str, Any]], list[str]] | None = None
+    country_catalog: Callable[[], list[dict[str, Any]]] | None = None
 
     def catalog(self) -> list[dict[str, Any]]:
-        installed = {str(item.get("id") or "") for item in self._instances()}
-        return [
-            {
-                "country": country,
-                **template,
-                "installed": template["id"] in installed,
+        with self.lock:
+            instances = self._instances()
+            installed = {
+                str(item.get("country") or "").strip().upper(): item
+                for item in instances
             }
-            for country, template in INSTANCE_TEMPLATES.items()
-        ]
+            catalog: list[dict[str, Any]] = []
+            for source in self._country_entries(instances):
+                country = source["country"]
+                record = installed.get(country)
+                if record is not None:
+                    resources = {
+                        field: record.get(field)
+                        for field in ("tun_dev", "policy_table", "proxy_port", "ui_port")
+                    }
+                    catalog.append({**source, "id": str(record.get("id") or country.lower()), **resources, "installed": True, "creatable": False})
+                    continue
+                try:
+                    selected = self._allocate_resources(country, instances, check_host=False)
+                    catalog.append({**source, **selected, "installed": False, "creatable": True})
+                except LifecycleError as exc:
+                    catalog.append(
+                        {
+                            **source,
+                            "id": country.lower(),
+                            "installed": False,
+                            "creatable": False,
+                            "error_code": exc.code,
+                        }
+                    )
+            return catalog
 
     def validate_create(self, country: str, instance_id: str = "") -> dict[str, Any]:
-        country = str(country or "").strip().upper()
-        template = INSTANCE_TEMPLATES.get(country)
-        if template is None:
-            raise LifecycleError("unsupported_instance_template", "unsupported instance template")
-        requested_id = str(instance_id or template["id"]).strip().lower()
-        if requested_id != template["id"]:
-            raise LifecycleError("invalid_instance_id", "instance id must match the catalog template")
-        instances = self._instances()
-        if any(str(item.get("id") or "").lower() == requested_id for item in instances):
-            raise LifecycleError("instance_exists", "instance already exists", 409)
-        env_file = self.config_dir / f"{requested_id}.env"
-        if env_file.exists():
-            raise LifecycleError("resource_conflict", "managed environment file already exists", 409)
-        for item in instances:
-            for field in ("tun_dev", "policy_table", "proxy_port", "ui_port"):
-                if str(item.get(field) or "") == str(template[field]):
-                    raise LifecycleError("resource_conflict", f"instance resource conflict: {field}", 409)
-        selected = {"country": country, **template}
-        conflicts = self.resource_probe(selected) if self.resource_probe is not None else []
-        if conflicts:
-            raise LifecycleError("resource_conflict", f"host resource conflict: {', '.join(conflicts)}", 409)
-        return selected
+        with self.lock:
+            country = str(country or "").strip().upper()
+            if not COUNTRY_CODE_PATTERN.fullmatch(country):
+                raise LifecycleError("invalid_country", "country must be an ISO alpha-2 code")
+            instances = self._instances()
+            available = {item["country"] for item in self._country_entries(instances) if int(item.get("node_count") or 0) > 0}
+            if country not in available:
+                raise LifecycleError("country_not_available", "country is not available in the current VPNGate catalog", 409)
+            expected_id = country.lower()
+            requested_id = str(instance_id or expected_id).strip().lower()
+            if requested_id != expected_id:
+                raise LifecycleError("invalid_instance_id", "instance id must match the country code")
+            if any(str(item.get("id") or "").lower() == requested_id for item in instances):
+                raise LifecycleError("instance_exists", "instance already exists", 409)
+            env_file = self.config_dir / f"{requested_id}.env"
+            if env_file.exists():
+                raise LifecycleError("resource_conflict", "managed environment file already exists", 409)
+            return self._allocate_resources(country, instances, check_host=True)
+
+    def _country_entries(self, instances: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        try:
+            raw_entries = list(self.country_catalog()) if self.country_catalog is not None else list(LEGACY_COUNTRY_CATALOG)
+        except Exception as exc:
+            raise LifecycleError("country_catalog_unavailable", "VPNGate country catalog is unavailable", 503) from exc
+        entries: dict[str, dict[str, Any]] = {}
+        for item in raw_entries:
+            if not isinstance(item, dict):
+                continue
+            country = str(item.get("country") or "").strip().upper()
+            if not COUNTRY_CODE_PATTERN.fullmatch(country):
+                continue
+            try:
+                node_count = max(0, int(item.get("node_count") or 0))
+            except (TypeError, ValueError):
+                node_count = 0
+            entry = entries.setdefault(
+                country,
+                {
+                    "country": country,
+                    "name": str(item.get("name") or country).strip() or country,
+                    "node_count": 0,
+                },
+            )
+            entry["node_count"] = max(int(entry["node_count"]), node_count)
+        for instance in instances:
+            country = str(instance.get("country") or "").strip().upper()
+            if COUNTRY_CODE_PATTERN.fullmatch(country):
+                entries.setdefault(country, {"country": country, "name": country, "node_count": 0})
+        return sorted(
+            entries.values(),
+            key=lambda item: (0 if item["country"] == "JP" else 1, str(item["name"]).lower(), item["country"]),
+        )
+
+    def _allocate_resources(
+        self,
+        country: str,
+        instances: list[dict[str, Any]],
+        *,
+        check_host: bool,
+    ) -> dict[str, Any]:
+        preferred = PREFERRED_RESOURCE_SLOTS.get(country)
+        reserved = set(PREFERRED_RESOURCE_SLOTS.values())
+        slots = ([preferred] if preferred is not None else []) + [
+            slot
+            for slot in range(RESOURCE_SLOT_COUNT)
+            if slot not in reserved and slot != preferred
+        ]
+        last_host_conflicts: list[str] = []
+        for slot in slots:
+            selected = {
+                "country": country,
+                "id": country.lower(),
+                "tun_dev": f"tun{RESOURCE_BASES['tun_dev'] + slot}",
+                "policy_table": RESOURCE_BASES["policy_table"] + slot,
+                "proxy_port": RESOURCE_BASES["proxy_port"] + slot,
+                "ui_port": RESOURCE_BASES["ui_port"] + slot,
+            }
+            if self._catalog_resource_conflicts(selected, instances):
+                continue
+            host_conflicts = self.resource_probe(selected) if check_host and self.resource_probe is not None else []
+            if host_conflicts:
+                last_host_conflicts = list(host_conflicts)
+                continue
+            return selected
+        if last_host_conflicts:
+            raise LifecycleError(
+                "resource_conflict",
+                f"host resource conflict: {', '.join(sorted(set(last_host_conflicts)))}",
+                409,
+            )
+        raise LifecycleError("resource_capacity_exhausted", "no managed instance resources are available", 409)
+
+    @staticmethod
+    def _catalog_resource_conflicts(selected: dict[str, Any], instances: list[dict[str, Any]]) -> bool:
+        return any(
+            str(item.get(field) or "") == str(selected[field])
+            for item in instances
+            for field in ("tun_dev", "policy_table", "proxy_port", "ui_port")
+        )
 
     def create(self, country: str, instance_id: str = "") -> dict[str, Any]:
         with self.lock:

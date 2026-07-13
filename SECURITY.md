@@ -7,12 +7,14 @@ explicit immutable release tag or full commit. Verify the published SHA-256
 before running the local installer; never pipe a moving branch into a shell.
 See [`docs/installation.md`](docs/installation.md).
 
-A fresh systemd install creates JP only. KR/US can be created only from the
-server-side verified catalog through an authenticated Console session. The
-backend validates all TUN, policy-table, port, path, and service ownership
-values. Instance environment files, the catalog, source metadata, and audit
-metadata use mode 0600. Browser input can never provide a unit filename,
-environment path, arbitrary country, TUN device, policy table, or port.
+A fresh systemd install creates JP only. Additional countries can be created
+only when they appear with usable nodes in the latest server-side VPNGate
+country catalog and the request comes from an authenticated Console session.
+The backend allocates and validates all TUN, policy-table, port, path, and
+service ownership values. Instance environment files, the catalog, source
+metadata, and audit metadata use mode 0600. Browser input can provide only a
+catalog country code; it can never provide a unit filename, environment path,
+TUN device, policy table, or port.
 
 The backend unit is capability-bounded to `CAP_NET_ADMIN` and `CAP_NET_RAW`.
 The Console has an empty capability bounding set, a strict read-only filesystem

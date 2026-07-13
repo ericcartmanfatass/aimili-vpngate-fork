@@ -32,6 +32,7 @@ from aimilivpn.system.instance_lifecycle import (
 from aimilivpn.system.console_instances import (
     instance_by_id,
     instance_state as build_instance_state,
+    load_available_country_catalog,
     load_instances,
     read_logs,
     stripped_nodes as build_stripped_nodes,
@@ -61,6 +62,7 @@ instance_lifecycle = InstanceLifecycle(
     systemctl=systemctl,
     lock=threading.RLock(),
     resource_probe=detect_host_resource_conflicts,
+    country_catalog=load_available_country_catalog,
 )
 
 LOGIN_HTML = """<!doctype html><html><body><h1>AimiliVPN Console Login</h1></body></html>"""
