@@ -11,8 +11,11 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 from aimilivpn.core.auth import generate_session_token, verify_password, verify_username
-from aimilivpn.system.console_backend import backend_request, service_action, service_active
+from aimilivpn.system.console_backend import backend_request, service_action, service_active, systemctl
 from aimilivpn.system.console_config import (
+    CONFIG_DIR,
+    INSTALL_DIR,
+    INSTANCES_FILE,
     LOGIN_RATE_LIMIT_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
     MAX_REQUEST_BODY_BYTES,
@@ -20,6 +23,11 @@ from aimilivpn.system.console_config import (
     TRUST_PROXY_HEADERS,
     TRUSTED_PROXY_ADDRESSES,
     load_console_auth,
+)
+from aimilivpn.system.instance_lifecycle import (
+    InstanceLifecycle,
+    LifecycleError,
+    detect_host_resource_conflicts,
 )
 from aimilivpn.system.console_instances import (
     instance_by_id,
@@ -45,6 +53,15 @@ sessions: dict[str, float] = {}
 sessions_lock = threading.RLock()
 login_limiter = LoginAttemptLimiter(LOGIN_RATE_LIMIT_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
 _auth_fingerprint: str | None = None
+instance_lifecycle = InstanceLifecycle(
+    config_dir=CONFIG_DIR,
+    install_dir=INSTALL_DIR,
+    instances_file=INSTANCES_FILE,
+    token_file=CONFIG_DIR / "instance_api_token",
+    systemctl=systemctl,
+    lock=threading.RLock(),
+    resource_probe=detect_host_resource_conflicts,
+)
 
 LOGIN_HTML = """<!doctype html><html><body><h1>AimiliVPN Console Login</h1></body></html>"""
 INDEX_HTML = """<!doctype html><html><body><h1>AimiliVPN Console</h1></body></html>"""
@@ -190,6 +207,8 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             self.send_bytes(asset, guess_content_type(asset_path))
         elif path == "/api/instances":
             self.send_json({"instances": [instance_state(inst) for inst in load_instances()]})
+        elif path == "/api/instance-catalog":
+            self.send_json({"catalog": instance_lifecycle.catalog()})
         elif path.startswith("/api/instances/"):
             parts = path.strip("/").split("/")
             if len(parts) < 3:
@@ -282,6 +301,28 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         if not self.authorized():
             self.send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
             return
+        print(f"[console audit] mutation path={path} client={self.client_ip()}", flush=True)
+        if path in {"/api/instances", "/api/instances/validate"}:
+            payload = self.body_json()
+            try:
+                if path.endswith("/validate"):
+                    selected = instance_lifecycle.validate_create(
+                        str(payload.get("country") or ""),
+                        str(payload.get("id") or ""),
+                    )
+                    self.send_json({"ok": True, "instance": selected})
+                else:
+                    created = instance_lifecycle.create(
+                        str(payload.get("country") or ""),
+                        str(payload.get("id") or ""),
+                    )
+                    self.send_json({"ok": True, "instance": created}, HTTPStatus.CREATED)
+            except LifecycleError as exc:
+                self.send_json(
+                    {"ok": False, "error": exc.message, "error_code": exc.code},
+                    HTTPStatus(exc.status),
+                )
+            return
         if not path.startswith("/api/instances/"):
             self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             return
@@ -303,3 +344,46 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             self.send_json(backend_request(inst, f"/api/{action}", method="POST", payload=payload))
         else:
             self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+
+    def do_DELETE(self) -> None:
+        try:
+            self._handle_delete()
+        except RequestBodyTooLarge:
+            self.safe_error_json({"error": "request body too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        except (InvalidRequestBody, json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            self.safe_error_json({"error": "invalid request body"}, HTTPStatus.BAD_REQUEST)
+        except Exception as exc:
+            print(f"[console audit] DELETE request failed: {type(exc).__name__}", flush=True)
+            self.safe_error_json({"error": "internal server error"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _handle_delete(self) -> None:
+        path = self.effective_path()
+        if not path:
+            return
+        if not self.authorized():
+            self.send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
+        parts = path.strip("/").split("/")
+        if len(parts) != 3 or parts[:2] != ["api", "instances"]:
+            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            return
+        payload = self.body_json()
+        instance_id = parts[2]
+        retain_data = payload.get("retain_data", True)
+        if not isinstance(retain_data, bool):
+            raise InvalidRequestBody("retain_data must be boolean")
+        print(f"[console audit] mutation path=/api/instances/<id> client={self.client_ip()}", flush=True)
+        try:
+            result = instance_lifecycle.delete(
+                instance_id,
+                confirmation=str(payload.get("confirmation") or ""),
+                retain_data=retain_data,
+                purge_data_confirmation=str(payload.get("purge_data_confirmation") or ""),
+            )
+        except LifecycleError as exc:
+            self.send_json(
+                {"ok": False, "error": exc.message, "error_code": exc.code},
+                HTTPStatus(exc.status),
+            )
+            return
+        self.send_json({"ok": True, **result})

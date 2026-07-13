@@ -18,7 +18,7 @@ Run the same checks as CI from the repository root:
 
 ```bash
 python -m compileall -q aimilivpn console_server.py proxy_server.py vpngate_manager.py vpn_utils.py tests
-bash -n install.sh
+bash -n install.sh scripts/build-release.sh
 python -m unittest discover -s tests -p 'test*.py'
 ```
 
@@ -74,6 +74,10 @@ authoritative release signal.
   `tests/test_ui_config.py`, and the stage-specific tests added with network
   hardening.
 - Installer and systemd static checks: `tests/test_install_script.py` plus
-  `bash -n install.sh` in CI.
+  `bash -n install.sh scripts/build-release.sh` in CI.
+- Verified source pinning, JP-only defaults, instance catalog create/delete
+  rollback, resource conflicts, data retention, and sysctl restoration:
+  `tests/test_install_script.py`, `tests/test_instance_lifecycle.py`,
+  `tests/test_console_routes.py`, and `tests/test_cli_parser.py`.
 
 Network/session security changes must update these tests before their call sites.

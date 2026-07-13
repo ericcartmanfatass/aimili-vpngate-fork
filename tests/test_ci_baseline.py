@@ -18,7 +18,7 @@ class CiBaselineTests(unittest.TestCase):
             'os: ["ubuntu-22.04", "ubuntu-24.04"]',
             'python: ["3.10", "3.12"]',
             "python -m compileall -q",
-            "bash -n install.sh",
+            "bash -n install.sh scripts/build-release.sh",
             "python -m unittest discover -s tests -p 'test*.py'",
         ):
             with self.subTest(expected=expected):

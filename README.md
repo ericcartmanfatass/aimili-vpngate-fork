@@ -24,9 +24,9 @@ AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN
 在您的 Linux VPS 上以 root 用户执行以下对应命令：
 
 #### 🌟 正式稳定版本 (main 分支)
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/main/install.sh)
-```
+Download a pinned release, verify its checksum, and then run `install.sh`
+locally. See [Verified installation and lifecycle operations](docs/installation.md).
+Do not pipe an installer from a moving branch directly into a shell.
 > 💡 **安全提示**：管理网页默认只监听 `127.0.0.1`，安装日志不会输出完整安全路径。远程访问请先按 [TLS 反向代理指南](docs/reverse-proxy.md) 配置 Nginx/Caddy，再使用 `ml web` 主动查询入口。随机路径只能降低扫描噪声，不能替代密码和 HTTPS。
 
 ---
@@ -140,9 +140,9 @@ Linux is the supported runtime target. CPython 3.10 is the minimum supported ver
 Run the corresponding command on your Linux VPS as root:
 
 #### 🌟 Stable Release (main branch)
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/main/install.sh)
-```
+Download a pinned release, verify its checksum, and then run `install.sh`
+locally. See [Verified installation and lifecycle operations](docs/installation.md).
+Do not pipe an installer from a moving branch directly into a shell.
 
 > 💡 **Security note**: Management services bind to `127.0.0.1`, and install logs do not print the complete secret-path URL. Configure the [TLS reverse proxy](docs/reverse-proxy.md), then run `ml web` when you need the entry URL. The random path is scan-noise reduction, not authentication or encryption.
 

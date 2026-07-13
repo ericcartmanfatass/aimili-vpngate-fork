@@ -8,6 +8,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_release_builder_emits_archive_checksum_from_tag(self) -> None:
+        text = (ROOT / "scripts" / "build-release.sh").read_text(encoding="utf-8")
+
+        self.assertIn('git archive --format=tar --prefix=', text)
+        self.assertIn("gzip -n", text)
+        self.assertIn('sha256sum "$ARCHIVE" > SHA256SUMS', text)
+
+    def test_readme_requires_verified_local_installer(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("bash <(curl", text)
+        self.assertIn("docs/installation.md", text)
+
     def test_ml_wrapper_uses_package_cli(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
 
@@ -19,19 +32,41 @@ class InstallScriptTests(unittest.TestCase):
     def test_update_defaults_to_fast_forward_and_gates_force_reset(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
 
-        self.assertIn('git pull --ff-only origin "${DEPLOY_BRANCH}"', text)
+        self.assertIn('git merge --ff-only "$TARGET_COMMIT"', text)
         self.assertIn('if [ "${FORCE_UPDATE:-0}" = "1" ]; then', text)
-        self.assertIn('git reset --hard "origin/${DEPLOY_BRANCH}"', text)
+        self.assertIn('git reset --hard "$TARGET_COMMIT"', text)
+        self.assertIn('git bundle create "$BACKUP_DIR/source.bundle" --all', text)
+        self.assertIn("git stash push --include-untracked", text)
         self.assertLess(
-            text.index('if [ "${FORCE_UPDATE:-0}" = "1" ]; then'),
-            text.index('git reset --hard "origin/${DEPLOY_BRANCH}"'),
+            text.index('git bundle create "$BACKUP_DIR/source.bundle" --all'),
+            text.index('git reset --hard "$TARGET_COMMIT"'),
         )
         self.assertNotIn("git pull origin \"${DEPLOY_BRANCH}\"", text)
+
+    def test_remote_install_uses_fixed_repository_and_immutable_ref_metadata(self) -> None:
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn('GITHUB_URL="https://github.com/ericcartmanfatass/aimili-vpngate-fork.git"', text)
+        self.assertIn('DEPLOY_REF="${AIMILIVPN_REF:-}"', text)
+        self.assertIn("validate_deploy_ref()", text)
+        self.assertIn('INSTALL_SHA256=$(sha256sum "${INSTALL_DIR}/install.sh"', text)
+        self.assertIn('SOURCE_METADATA="/etc/aimilivpn/install-source.json"', text)
+        self.assertNotIn('GITHUB_USER="${1:', text)
+
+    def test_fresh_multi_instance_install_creates_jp_only(self) -> None:
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn('COUNTRIES="${COUNTRIES:-JP}"', text)
+        self.assertNotIn('COUNTRIES="${COUNTRIES:-JP,US,KR}"', text)
+        self.assertIn('systemctl enable --now "aimilivpn@${CC_LO}.service"', text)
+        self.assertIn("PRESERVE_EXISTING_INSTANCES=1", text)
+        self.assertIn("Preserving ${#CC_LIST[@]} existing instance catalog entries", text)
 
     def test_local_source_sync_includes_package_directory(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
 
         self.assertIn("for src_dir in aimilivpn tests docs; do", text)
+        self.assertIn("README.md SECURITY.md MIGRATION.md TESTING.md", text)
         self.assertIn('cp -a "${SCRIPT_DIR}/${src_dir}" "${INSTALL_DIR}/${src_dir}"', text)
 
     def test_console_service_uses_packaged_runtime(self) -> None:
@@ -88,17 +123,23 @@ class InstallScriptTests(unittest.TestCase):
 
         self.assertIn("/etc/sysctl.d/99-aimilivpn.conf", text)
         self.assertIn("sysctl -w net.ipv4.conf.all.rp_filter=2", text)
+        self.assertIn("99-aimilivpn.conf.preinstall", text)
+        self.assertIn("network-changes.json", text)
+        self.assertIn('"dns_modified": False', text)
         self.assertIn("leaving /etc/sysctl.conf untouched", text)
         self.assertNotIn(">> /etc/sysctl.conf", text)
         self.assertNotIn("sed -i 's/net.ipv4.conf", text)
 
-    def test_systemd_units_use_low_risk_hardening(self) -> None:
+    def test_systemd_units_use_capability_and_filesystem_hardening(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
 
         self.assertEqual(text.count("NoNewPrivileges=yes"), 2)
         self.assertEqual(text.count("PrivateTmp=yes"), 2)
-        self.assertNotIn("ProtectSystem=strict", text)
-        self.assertNotIn("CapabilityBoundingSet=", text)
+        self.assertIn("ProtectSystem=strict", text)
+        self.assertIn("CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW", text)
+        self.assertIn("AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW", text)
+        self.assertIn("CapabilityBoundingSet=\n", text)
+        self.assertEqual(text.count("UMask=0077"), 2)
 
     def test_management_interfaces_install_on_loopback_only(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")

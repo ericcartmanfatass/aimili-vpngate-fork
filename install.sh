@@ -47,14 +47,18 @@ echo -e "${BLUE}        欢迎使用 AimiliVPN 一键源码部署与管理脚本
 echo -e "${BLUE}==========================================================${PLAIN}"
 
 # 3. Configure GitHub Repository URL
-DEFAULT_USER="ericcartmanfatass"
-DEFAULT_REPO="aimili-vpngate-fork"
+GITHUB_URL="https://github.com/ericcartmanfatass/aimili-vpngate-fork.git"
+DEPLOY_REF="${AIMILIVPN_REF:-}"
+SOURCE_METADATA="/etc/aimilivpn/install-source.json"
 
-# Allow custom repository override via command line arguments
-GITHUB_USER="${1:-${DEFAULT_USER}}"
-GITHUB_REPO="${2:-${DEFAULT_REPO}}"
-
-GITHUB_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git"
+validate_deploy_ref() {
+    if [[ "$DEPLOY_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9._-]+)?$ ]] || \
+       [[ "$DEPLOY_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+        return 0
+    fi
+    echo -e "${RED}Error: AIMILIVPN_REF must be an immutable vX.Y.Z tag or full commit SHA.${PLAIN}"
+    exit 1
+}
 
 echo -e "\n${YELLOW}[1/4] 正在安装系统基础依赖...${PLAIN}"
 if [ "$PKG_MGR" = "apt-get" ]; then
@@ -83,8 +87,7 @@ fi
 INSTALL_DIR="/opt/aimilivpn"
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# 默认部署分支（在 bate 分支设为 bate；在 main 分支设为 main）
-DEFAULT_DEPLOY_BRANCH="${DEFAULT_DEPLOY_BRANCH:-main}"
+# Remote deployments use only the immutable ref validated above.
 
 write_ml_wrapper() {
     cat > /usr/bin/ml <<EOF
@@ -95,32 +98,57 @@ EOF
     chmod +x /usr/bin/ml
 }
 
-# 自动检测本地已安装版本当前所在的分支
-CURRENT_BRANCH=""
-if [ -d "${INSTALL_DIR}/.git" ]; then
-    CURRENT_BRANCH=$(cd "${INSTALL_DIR}" && git rev-parse --abbrev-ref HEAD 2>/dev/null)
-fi
-DEPLOY_BRANCH="${CURRENT_BRANCH:-$DEFAULT_DEPLOY_BRANCH}"
+# Keep a single ref variable for status messages and checkout commands.
+DEPLOY_BRANCH="${DEPLOY_REF}"
 
 echo -e "\n${YELLOW}[2/4] 正在从 GitHub 部署源代码到 ${INSTALL_DIR} (目标分支: ${DEPLOY_BRANCH})...${PLAIN}"
 if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
+    if [ "${AIMILIVPN_LOCAL_DEV:-0}" != "1" ]; then
+        validate_deploy_ref
+    fi
     echo -e "${GREEN}  -> 检测到本地多实例源码，跳过 GitHub 拉取，使用当前目录部署。${PLAIN}"
     mkdir -p "${INSTALL_DIR}"
 elif [ -f "${INSTALL_DIR}/.local_dev" ]; then
     echo -e "${GREEN}检测到本地开发模式 (.local_dev)，跳过 git pull/reset 保持本地修改。${PLAIN}"
 else
+    if [ -z "$DEPLOY_REF" ] && [ -f "$SOURCE_METADATA" ]; then
+        DEPLOY_REF=$(python3 - "$SOURCE_METADATA" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8")).get("ref", ""))
+PY
+        )
+        DEPLOY_BRANCH="$DEPLOY_REF"
+    fi
+    validate_deploy_ref
     if [ -d "${INSTALL_DIR}" ]; then
         echo -e "  -> 目录 ${INSTALL_DIR} 已存在，正在安全更新本地源码..."
         cd "${INSTALL_DIR}"
-        git fetch --all || true
-        git checkout "${DEPLOY_BRANCH}" || git checkout -b "${DEPLOY_BRANCH}" "origin/${DEPLOY_BRANCH}" || true
+        git fetch --tags origin
+        TARGET_COMMIT=$(git rev-parse "${DEPLOY_REF}^{commit}")
+        CURRENT_COMMIT=$(git rev-parse HEAD)
+        DIRTY=$(git status --porcelain)
+        if [ -n "$DIRTY" ] && [ "${FORCE_UPDATE:-0}" != "1" ]; then
+            echo -e "${RED}Local source changes detected; update stopped.${PLAIN}"
+            exit 1
+        fi
+        if [ -n "$DIRTY" ] && [ "${FORCE_UPDATE:-0}" = "1" ]; then
+            BACKUP_DIR="/var/backups/aimilivpn/$(date -u +%Y%m%dT%H%M%SZ)"
+            mkdir -p "$BACKUP_DIR"
+            git diff --binary HEAD > "$BACKUP_DIR/working-tree.patch"
+            git status --porcelain > "$BACKUP_DIR/status.txt"
+            git stash push --include-untracked -m "aimilivpn-force-update-backup"
+            git bundle create "$BACKUP_DIR/source.bundle" --all
+            echo -e "${YELLOW}Local source backup written to ${BACKUP_DIR}.${PLAIN}"
+            git reset --hard HEAD
+            git clean -fd
+        fi
         echo -e "  -> 正在执行 fast-forward 更新 origin/${DEPLOY_BRANCH} ..."
-        if git pull --ff-only origin "${DEPLOY_BRANCH}"; then
+        if git merge --ff-only "$TARGET_COMMIT"; then
             echo -e "${GREEN}  -> 源码更新成功！${PLAIN}"
         else
             if [ "${FORCE_UPDATE:-0}" = "1" ]; then
                 echo -e "${YELLOW}  -> FORCE_UPDATE=1，正在强制重置本地源码至 origin/${DEPLOY_BRANCH} ...${PLAIN}"
-                if git reset --hard "origin/${DEPLOY_BRANCH}"; then
+                if git reset --hard "$TARGET_COMMIT" && git clean -fd; then
                     echo -e "${GREEN}  -> 源码已强制更新。${PLAIN}"
                 else
                     echo -e "${YELLOW}  -> 警告: git reset 失败，将保留当前本地源码并继续安装。${PLAIN}"
@@ -130,6 +158,10 @@ else
                 echo -e "${YELLOW}  -> 已保留当前本地源码。确认要覆盖时，可重新运行: FORCE_UPDATE=1 bash install.sh${PLAIN}"
             fi
         fi
+        if [ "$(git rev-parse HEAD)" != "$TARGET_COMMIT" ]; then
+            echo -e "${RED}Source verification failed; update stopped.${PLAIN}"
+            exit 1
+        fi
     else
         echo -e "  -> 正在克隆 GitHub 仓库 ${GITHUB_URL} (分支: ${DEPLOY_BRANCH}) ..."
         if git clone -b "${DEPLOY_BRANCH}" "${GITHUB_URL}" "${INSTALL_DIR}"; then
@@ -138,7 +170,7 @@ else
             echo -e "  -> 尝试默认克隆..."
             if git clone "${GITHUB_URL}" "${INSTALL_DIR}"; then
                 cd "${INSTALL_DIR}"
-                git checkout "${DEPLOY_BRANCH}" || git checkout -b "${DEPLOY_BRANCH}" "origin/${DEPLOY_BRANCH}" || true
+                git checkout --detach "${DEPLOY_REF}"
                 echo -e "${GREEN}  -> 克隆成功！${PLAIN}"
             else
                 echo -e "${RED}  -> 错误: 无法克隆仓库 ${GITHUB_URL}，请检查网络！${PLAIN}"
@@ -146,12 +178,25 @@ else
             fi
         fi
     fi
+    cd "${INSTALL_DIR}"
+    TARGET_COMMIT=$(git rev-parse HEAD)
+    mkdir -p /etc/aimilivpn
+    INSTALL_SHA256=$(sha256sum "${INSTALL_DIR}/install.sh" | awk '{print $1}')
+    python3 - "$SOURCE_METADATA" "$GITHUB_URL" "$DEPLOY_REF" "$TARGET_COMMIT" "$INSTALL_SHA256" <<'PY'
+import json, os, sys
+path, repository, ref, commit, installer_sha256 = sys.argv[1:]
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as handle:
+    json.dump({"repository": repository, "ref": ref, "commit": commit, "installer_sha256": installer_sha256}, handle, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+PY
 fi
 
 if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
     echo -e "  -> Syncing local multi-instance source files into ${INSTALL_DIR} ..."
     mkdir -p "${INSTALL_DIR}"
-    for src_file in install.sh proxy_server.py vpngate_manager.py vpn_utils.py console_server.py README.md LICENSE .gitignore .gitattributes; do
+    for src_file in install.sh proxy_server.py vpngate_manager.py vpn_utils.py console_server.py README.md SECURITY.md MIGRATION.md TESTING.md LICENSE .gitignore .gitattributes; do
         if [ -f "${SCRIPT_DIR}/${src_file}" ]; then
             src_path="$(readlink -f "${SCRIPT_DIR}/${src_file}")"
             dst_path="$(readlink -f "${INSTALL_DIR}/${src_file}" 2>/dev/null || printf '%s/%s' "${INSTALL_DIR}" "${src_file}")"
@@ -167,6 +212,29 @@ if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
         fi
     done
     find "${INSTALL_DIR}" -maxdepth 1 -type f \( -name '*.py' -o -name '*.sh' \) -exec sed -i 's/\r$//' {} \;
+    if [ "${AIMILIVPN_LOCAL_DEV:-0}" != "1" ]; then
+        mkdir -p /etc/aimilivpn
+        if [ -d "$SCRIPT_DIR/.git" ]; then
+            LOCAL_COMMIT=$(git -C "$SCRIPT_DIR" rev-parse HEAD)
+            EXPECTED_COMMIT=$(git -C "$SCRIPT_DIR" rev-parse "${DEPLOY_REF}^{commit}")
+            if [ "$LOCAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
+                echo -e "${RED}Local source does not match AIMILIVPN_REF; installation stopped.${PLAIN}"
+                exit 1
+            fi
+        else
+            LOCAL_COMMIT="$DEPLOY_REF"
+        fi
+        INSTALL_SHA256=$(sha256sum "${INSTALL_DIR}/install.sh" | awk '{print $1}')
+        python3 - "$SOURCE_METADATA" "$GITHUB_URL" "$DEPLOY_REF" "$LOCAL_COMMIT" "$INSTALL_SHA256" <<'PY'
+import json, os, sys
+path, repository, ref, commit, installer_sha256 = sys.argv[1:]
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as handle:
+    json.dump({"repository": repository, "ref": ref, "commit": commit, "installer_sha256": installer_sha256}, handle, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+PY
+    fi
 fi
 
 # 5. Configure Service
@@ -185,7 +253,24 @@ if command -v systemctl >/dev/null 2>&1; then
     declare -A POLICY_MAP=( [JP]=110 [US]=111 [KR]=112 )
     declare -A PROXY_PORT_MAP=( [JP]=7928 [US]=7929 [KR]=7930 )
     declare -A UI_PORT_MAP=( [JP]=18788 [US]=18789 [KR]=18790 )
-    COUNTRIES="${COUNTRIES:-JP,US,KR}"
+    # A fresh installation creates JP only. An upgrade preserves the existing
+    # catalog and env files instead of recreating or dropping user instances.
+    PRESERVE_EXISTING_INSTANCES=0
+    if [ -f /etc/aimilivpn/instances.json ] && [ -z "${COUNTRIES+x}" ]; then
+        PRESERVE_EXISTING_INSTANCES=1
+        mapfile -t CC_LIST < <(python3 - <<'PY'
+import json
+data = json.load(open("/etc/aimilivpn/instances.json", encoding="utf-8"))
+for item in data.get("instances", []):
+    country = str(item.get("country") or "").strip().upper()
+    if country in {"JP", "KR", "US"}:
+        print(country)
+PY
+        )
+        echo -e "  -> Preserving ${#CC_LIST[@]} existing instance catalog entries and env files."
+    else
+        COUNTRIES="${COUNTRIES:-JP}"
+    fi
 
     if systemctl list-unit-files aimilivpn.service >/dev/null 2>&1; then
         systemctl disable --now aimilivpn.service >/dev/null 2>&1 || true
@@ -208,8 +293,19 @@ EnvironmentFile=/etc/aimilivpn/%i.env
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
-ProtectSystem=full
-ReadWritePaths=${INSTALL_DIR} /etc/aimilivpn /var/log/aimilivpn
+ProtectSystem=strict
+UMask=0077
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectClock=yes
+SystemCallArchitectures=native
+ReadWritePaths=${INSTALL_DIR}/data
 
 [Install]
 WantedBy=multi-user.target
@@ -239,6 +335,7 @@ if not auth_file.exists():
     os.chmod(auth_file, 0o600)
 PY
 
+    if [ "$PRESERVE_EXISTING_INSTANCES" -eq 0 ]; then
     IFS=',' read -ra CC_LIST <<< "$COUNTRIES"
     INSTANCES_JSON='{"instances":['
     FIRST_JSON=1
@@ -279,6 +376,7 @@ EOF
     INSTANCES_JSON="${INSTANCES_JSON}]}"
     printf '%s\n' "$INSTANCES_JSON" > /etc/aimilivpn/instances.json
     chmod 600 /etc/aimilivpn/instances.json
+    fi
 
     cat > /etc/aimilivpn/console.env <<EOF
 AIMILIVPN_CONFIG_DIR=/etc/aimilivpn
@@ -305,8 +403,19 @@ EnvironmentFile=/etc/aimilivpn/console.env
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
-ProtectSystem=full
-ReadWritePaths=/etc/aimilivpn /var/log/aimilivpn
+ProtectSystem=strict
+UMask=0077
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+SystemCallArchitectures=native
+ReadWritePaths=/etc/aimilivpn ${INSTALL_DIR}/data
 
 [Install]
 WantedBy=multi-user.target
@@ -315,9 +424,9 @@ EOF
     systemctl daemon-reload
     for CC in "${CC_LIST[@]}"; do
         CC_LO="${CC,,}"
-        [ -f "/etc/aimilivpn/${CC_LO}.env" ] && systemctl enable "aimilivpn@${CC_LO}.service" >/dev/null 2>&1 || true
+        [ -f "/etc/aimilivpn/${CC_LO}.env" ] && systemctl enable --now "aimilivpn@${CC_LO}.service" >/dev/null 2>&1 || true
     done
-    systemctl enable aimilivpn-console.service >/dev/null 2>&1 || true
+    systemctl enable --now aimilivpn-console.service >/dev/null 2>&1 || true
 elif command -v rc-service >/dev/null 2>&1; then
     echo -e "  -> 检测到 OpenRC，正在创建服务配置 /etc/init.d/aimilivpn ..."
     cat > /etc/init.d/aimilivpn <<EOF
@@ -462,10 +571,30 @@ fi
 # 8.5 Persist network parameters needed for policy routing.
 echo -e "\n正在写入持久化网络参数 (rp_filter=2 以支持策略路由)..."
 if [ -d "/etc/sysctl.d" ]; then
+    mkdir -p /etc/aimilivpn/backups
+    if [ -f /etc/sysctl.d/99-aimilivpn.conf ] && [ ! -f /etc/aimilivpn/backups/99-aimilivpn.conf.preinstall ]; then
+        cp -p /etc/sysctl.d/99-aimilivpn.conf /etc/aimilivpn/backups/99-aimilivpn.conf.preinstall
+        chmod 600 /etc/aimilivpn/backups/99-aimilivpn.conf.preinstall
+    fi
     cat > /etc/sysctl.d/99-aimilivpn.conf <<EOF
 net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
 EOF
+    chmod 644 /etc/sysctl.d/99-aimilivpn.conf
+    python3 - <<'PY'
+import json, os
+path = "/etc/aimilivpn/network-changes.json"
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as handle:
+    json.dump({
+        "sysctl_file": "/etc/sysctl.d/99-aimilivpn.conf",
+        "backup": "/etc/aimilivpn/backups/99-aimilivpn.conf.preinstall",
+        "settings": {"net.ipv4.conf.all.rp_filter": 2, "net.ipv4.conf.default.rp_filter": 2},
+        "dns_modified": False,
+    }, handle, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+PY
     sysctl -p /etc/sysctl.d/99-aimilivpn.conf >/dev/null 2>&1 || true
 else
     echo -e "${YELLOW}Warning: /etc/sysctl.d is unavailable; applying rp_filter for this boot only and leaving /etc/sysctl.conf untouched.${PLAIN}"

@@ -230,11 +230,14 @@ class CliParserTests(unittest.TestCase):
             cfg_dir = self.write_instances(tmp, install_dir=install_dir)
             unit_dir = Path(tmp) / "systemd"
             ml_path = Path(tmp) / "bin" / "ml"
+            sysctl_file = Path(tmp) / "sysctl.d" / "99-aimilivpn.conf"
             data_dir = install_dir / "data" / "jp"
             install_dir.mkdir(parents=True, exist_ok=True)
             unit_dir.mkdir()
             ml_path.parent.mkdir()
             ml_path.write_text("#!/bin/sh\n", encoding="utf-8")
+            sysctl_file.parent.mkdir()
+            sysctl_file.write_text("net.ipv4.conf.all.rp_filter = 2\n", encoding="utf-8")
             (unit_dir / "aimilivpn@.service").write_text("unit", encoding="utf-8")
             (unit_dir / "aimilivpn-console.service").write_text("unit", encoding="utf-8")
             calls: list[list[str]] = []
@@ -248,6 +251,7 @@ class CliParserTests(unittest.TestCase):
                 "AIMILIVPN_INSTALL_DIR": str(install_dir),
                 "AIMILIVPN_SYSTEMD_UNIT_DIRS": str(unit_dir),
                 "AIMILIVPN_ML_PATH": str(ml_path),
+                "AIMILIVPN_SYSCTL_FILE": str(sysctl_file),
             }
             code, out, err = self.run_cli(tmp, "uninstall", "--yes", runner=runner, extra_env=env)
 
@@ -256,6 +260,8 @@ class CliParserTests(unittest.TestCase):
             self.assertIn(["systemctl", "disable", "aimilivpn-console.service"], calls)
             self.assertFalse(cfg_dir.exists())
             self.assertFalse(ml_path.exists())
+            self.assertFalse(sysctl_file.exists())
+            self.assertIn(["sysctl", "--system"], calls)
             self.assertFalse((unit_dir / "aimilivpn@.service").exists())
             self.assertTrue(data_dir.exists())
             self.assertTrue(install_dir.exists())
@@ -272,6 +278,37 @@ class CliParserTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         self.assertIn("--delete-data requires --confirm-delete-data", err)
+
+    def test_uninstall_restores_preinstall_sysctl_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            install_dir = Path(tmp) / "opt" / "aimilivpn"
+            cfg_dir = self.write_instances(tmp, install_dir=install_dir)
+            install_dir.mkdir(parents=True, exist_ok=True)
+            sysctl_file = Path(tmp) / "sysctl.d" / "99-aimilivpn.conf"
+            sysctl_file.parent.mkdir()
+            sysctl_file.write_text("net.ipv4.conf.all.rp_filter = 2\n", encoding="utf-8")
+            backup = cfg_dir / "backups" / "99-aimilivpn.conf.preinstall"
+            backup.parent.mkdir()
+            backup.write_text("net.ipv4.conf.all.rp_filter = 1\n", encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            env = {
+                "AIMILIVPN_CONFIG_DIR": str(cfg_dir),
+                "AIMILIVPN_INSTALL_DIR": str(install_dir),
+                "AIMILIVPN_SYSTEMD_UNIT_DIRS": str(Path(tmp) / "missing-units"),
+                "AIMILIVPN_ML_PATH": str(Path(tmp) / "missing-ml"),
+                "AIMILIVPN_SYSCTL_FILE": str(sysctl_file),
+            }
+            code, _, err = self.run_cli(tmp, "uninstall", "--yes", runner=runner, extra_env=env)
+
+            self.assertEqual(code, 0)
+            self.assertEqual(sysctl_file.read_text(encoding="utf-8"), "net.ipv4.conf.all.rp_filter = 1\n")
+            self.assertIn(["sysctl", "--system"], calls)
+            self.assertEqual(err, "")
 
     def test_uninstall_can_delete_data_with_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,5 +1,37 @@
 # AimiliVPN Migration Notes
 
+## P6 installation and instance migration
+
+Older multi-instance installs may already contain JP, US, and KR. They remain
+valid; the new default affects only fresh installation. Do not delete existing
+entries to match the new JP-only default. Back up `/etc/aimilivpn` and
+`/opt/aimilivpn/data` before upgrading.
+
+Remote updates now require `AIMILIVPN_REF` set to a verified `vX.Y.Z` tag or
+full commit. The first verified update records the resolved commit and installer
+checksum in `/etc/aimilivpn/install-source.json`. A dirty or non-fast-forward
+checkout stops. If explicit forced recovery is necessary, review the backup in
+`/var/backups/aimilivpn/TIMESTAMP/` before continuing or rolling back.
+
+Existing plaintext authentication migration remains automatic, but verify that
+`console_auth.json` and all `*.env` files are mode 0600 after upgrading. JSON to
+SQLite migration and rollback are unchanged from the storage section below.
+
+The installer backs up a pre-existing `99-aimilivpn.conf` before applying its
+audited `rp_filter=2` settings. `ml uninstall --yes` restores that backup, or
+removes the AimiliVPN-owned sysctl file when no predecessor existed. It never
+changes DNS or `/etc/resolv.conf`. Review `/etc/aimilivpn/network-changes.json`
+before rollback.
+
+New instance deletion retains data unless both the instance-ID confirmation and
+the separate data-purge confirmation are supplied. This protects nodes,
+quality history, and migration backups during lifecycle changes.
+
+The P6 systemd policy supersedes older examples later in this document: both
+units now use `ProtectSystem=strict`; the backend writes only the managed data
+directory with NET_ADMIN/NET_RAW, while the capability-free Console writes only
+the managed configuration and data directories.
+
 本文档记录从旧脚本式安装迁移到当前 fork 的注意事项。
 
 ## 升级来源
@@ -109,7 +141,8 @@ exec /usr/bin/python3 -m aimilivpn.cli.main "$@"
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
-ProtectSystem=full
+ProtectSystem=strict
+UMask=0077
 ```
 
 backend 和 console 服务会限制对系统目录的写入，允许写入安装目录、`/etc/aimilivpn` 和日志目录。如果你在旧系统上遇到 TUN 或 route 权限问题，先查看:

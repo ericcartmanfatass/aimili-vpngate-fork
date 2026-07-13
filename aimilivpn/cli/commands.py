@@ -35,6 +35,13 @@ class CliContext:
         self.store = JsonStore()
         self.system_config_dir = Path(os.environ.get("AIMILIVPN_CONFIG_DIR", "/etc/aimilivpn"))
         self.install_dir = Path(os.environ.get("AIMILIVPN_INSTALL_DIR", "/opt/aimilivpn"))
+        self.sysctl_file = Path(os.environ.get("AIMILIVPN_SYSCTL_FILE", "/etc/sysctl.d/99-aimilivpn.conf"))
+        self.sysctl_backup = Path(
+            os.environ.get(
+                "AIMILIVPN_SYSCTL_BACKUP",
+                str(self.system_config_dir / "backups" / "99-aimilivpn.conf.preinstall"),
+            )
+        )
         self.runner = runner or _run_command
 
 
@@ -151,6 +158,17 @@ def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     for path in systemd_unit_paths(ctx):
         if safe_remove_path(path):
             removed.append(str(path))
+    sysctl_changed = False
+    if ctx.sysctl_backup.exists():
+        ctx.sysctl_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ctx.sysctl_backup, ctx.sysctl_file)
+        removed.append(f"restored {ctx.sysctl_file}")
+        sysctl_changed = True
+    elif safe_remove_path(ctx.sysctl_file):
+        removed.append(str(ctx.sysctl_file))
+        sysctl_changed = True
+    if sysctl_changed:
+        ctx.runner(["sysctl", "--system"])
     if safe_remove_path(ctx.system_config_dir, recursive=True):
         removed.append(str(ctx.system_config_dir))
     ml_path = Path(os.environ.get("AIMILIVPN_ML_PATH", "/usr/bin/ml"))

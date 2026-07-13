@@ -138,8 +138,9 @@ active work, new operations receive HTTP 503 with
 `error_code=operation_capacity` until capacity becomes available.
 
 `POST /api/v1/proxy-checks` is explicitly synchronous and returns the current
-normalized proxy check result. Console-level systemd actions remain on the
-authenticated Console API until the instance lifecycle API planned for P6.
+normalized proxy check result. Instance lifecycle and systemd actions are
+separate authenticated Console APIs documented in `docs/installation.md`; they
+are not accepted through a single-instance backend.
 
 ## Compatibility and deprecation
 

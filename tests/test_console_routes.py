@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from types import MethodType
@@ -142,6 +143,69 @@ class ConsoleRouteSecurityTests(unittest.TestCase):
         console_routes.sync_auth_session_state({"username": "admin", "password_hash": "two"})
 
         self.assertEqual(console_routes.sessions, {})
+
+    def test_authenticated_instance_catalog_and_create_routes(self) -> None:
+        lifecycle = Mock()
+        lifecycle.catalog.return_value = [{"country": "JP", "id": "jp", "installed": True}]
+        lifecycle.create.return_value = {"id": "us", "country": "US"}
+
+        get_handler = build_login_handler(secure=False)
+        get_handler.effective_path = MethodType(lambda self: "/api/instance-catalog", get_handler)  # type: ignore[method-assign]
+        get_handler.authorized = MethodType(lambda self: True, get_handler)  # type: ignore[method-assign]
+        with patch.object(console_routes, "instance_lifecycle", lifecycle):
+            get_handler.do_GET()
+        self.assertEqual(json.loads(get_handler.wfile.getvalue())["catalog"][0]["country"], "JP")
+
+        post_handler = build_login_handler(secure=False)
+        post_handler.effective_path = MethodType(lambda self: "/api/instances", post_handler)  # type: ignore[method-assign]
+        post_handler.authorized = MethodType(lambda self: True, post_handler)  # type: ignore[method-assign]
+        post_handler.client_ip = MethodType(lambda self: "127.0.0.1", post_handler)  # type: ignore[method-assign]
+        post_handler.body_json = MethodType(lambda self: {"country": "US"}, post_handler)  # type: ignore[method-assign]
+        with patch.object(console_routes, "instance_lifecycle", lifecycle):
+            post_handler.do_POST()
+
+        self.assertEqual(post_handler.response_status, HTTPStatus.CREATED)
+        self.assertEqual(json.loads(post_handler.wfile.getvalue())["instance"]["id"], "us")
+        lifecycle.create.assert_called_once_with("US", "")
+
+    def test_authenticated_instance_delete_requires_backend_confirmation(self) -> None:
+        lifecycle = Mock()
+        lifecycle.delete.return_value = {"id": "us", "deleted": True, "data_retained": True}
+        handler = build_login_handler(secure=False)
+        handler.effective_path = MethodType(lambda self: "/api/instances/us", handler)  # type: ignore[method-assign]
+        handler.authorized = MethodType(lambda self: True, handler)  # type: ignore[method-assign]
+        handler.client_ip = MethodType(lambda self: "127.0.0.1", handler)  # type: ignore[method-assign]
+        handler.body_json = MethodType(  # type: ignore[method-assign]
+            lambda self: {"confirmation": "us", "retain_data": True},
+            handler,
+        )
+
+        with patch.object(console_routes, "instance_lifecycle", lifecycle):
+            handler.do_DELETE()
+
+        self.assertEqual(handler.response_status, HTTPStatus.OK)
+        lifecycle.delete.assert_called_once_with(
+            "us",
+            confirmation="us",
+            retain_data=True,
+            purge_data_confirmation="",
+        )
+
+    def test_instance_delete_rejects_non_boolean_retention_flag(self) -> None:
+        lifecycle = Mock()
+        handler = build_login_handler(secure=False)
+        handler.effective_path = MethodType(lambda self: "/api/instances/us", handler)  # type: ignore[method-assign]
+        handler.authorized = MethodType(lambda self: True, handler)  # type: ignore[method-assign]
+        handler.body_json = MethodType(  # type: ignore[method-assign]
+            lambda self: {"confirmation": "us", "retain_data": "false"},
+            handler,
+        )
+
+        with patch.object(console_routes, "instance_lifecycle", lifecycle):
+            handler.do_DELETE()
+
+        self.assertEqual(handler.response_status, HTTPStatus.BAD_REQUEST)
+        lifecycle.delete.assert_not_called()
 
 
 if __name__ == "__main__":

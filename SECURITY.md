@@ -1,5 +1,24 @@
 # Security Notes
 
+## Trusted installation and lifecycle boundary
+
+Remote installation is supported only from the fixed project repository and an
+explicit immutable release tag or full commit. Verify the published SHA-256
+before running the local installer; never pipe a moving branch into a shell.
+See [`docs/installation.md`](docs/installation.md).
+
+A fresh systemd install creates JP only. KR/US can be created only from the
+server-side verified catalog through an authenticated Console session. The
+backend validates all TUN, policy-table, port, path, and service ownership
+values. Instance environment files, the catalog, source metadata, and audit
+metadata use mode 0600. Browser input can never provide a unit filename,
+environment path, arbitrary country, TUN device, policy table, or port.
+
+The backend unit is capability-bounded to `CAP_NET_ADMIN` and `CAP_NET_RAW`.
+The Console has an empty capability bounding set, a strict read-only filesystem
+outside explicit managed paths, private temporary storage, restricted address
+families/namespaces, and no privilege escalation.
+
 ## 默认监听地址
 
 Backend Web UI、统一 Console 和本地代理默认绑定到 `127.0.0.1`，避免直接对公网暴露。Web 的 IPv6 绑定失败时只允许回退到 IPv4 loopback，不得回退到 `0.0.0.0`。
