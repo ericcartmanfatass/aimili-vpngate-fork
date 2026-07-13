@@ -41,6 +41,16 @@ class HttpResponseMixinTests(unittest.TestCase):
         self.assertIn(("Cache-Control", "no-store"), handler.response_headers)
         self.assertEqual(json.loads(body.decode("utf-8")), {"message": "hello"})
 
+    def test_send_json_adds_stable_error_identifier(self) -> None:
+        handler = FakeHttpHandler()
+
+        handler.send_json({"error": "bad input"}, HTTPStatus.BAD_REQUEST)
+
+        self.assertEqual(
+            json.loads(handler.wfile.getvalue().decode("utf-8")),
+            {"ok": False, "error": "bad input", "error_code": "invalid_request"},
+        )
+
     def test_read_request_body_uses_content_length(self) -> None:
         handler = FakeHttpHandler(b"abcdef", {"Content-Length": "4"})
 

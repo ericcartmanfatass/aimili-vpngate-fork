@@ -33,6 +33,19 @@ async function toggleFavorite(id, event) {
 
 let pollInterval = null;
 
+async function waitForOperation(operationId, timeoutMs = 30000) {
+  if (!operationId) return null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const response = await fetch(`./api/v1/operations/${encodeURIComponent(operationId)}`);
+    const payload = await response.json();
+    const operation = payload.operation || payload;
+    if (["succeeded", "failed"].includes(operation.status)) return operation;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error("operation_timeout");
+}
+
 function startConnectionPolling() {
   if (pollInterval) clearInterval(pollInterval);
   pollInterval = setInterval(async () => {
@@ -104,6 +117,10 @@ async function disconnectNode(){
     const response = await fetch("./api/disconnect", { method: "POST" });
     const result = await response.json();
     if (result.ok) {
+      const operation = await waitForOperation(result.operation_id);
+      if (operation && operation.status !== "succeeded") {
+        throw new Error(operation.error_code || "disconnect_failed");
+      }
       try {
         await fetch("./api/test_proxy", { method: "POST" });
       } catch(pe){}
@@ -124,7 +141,12 @@ $("region_filter").onchange=async()=>{ selectedRegionId = $("region_filter").val
 $("refresh").onclick=async()=>{ 
   $("refresh").disabled=true; 
   $("refresh").textContent="正在后台更新..."; 
-  try{await fetch("./api/refresh_nodes",{method:"POST"}); await load();} 
+  try{
+    const response = await fetch("./api/refresh_nodes",{method:"POST"});
+    const result = await response.json();
+    if (result.ok) await waitForOperation(result.operation_id);
+    await load();
+  }
   catch(e){}
   setTimeout(()=>{
     $("refresh").disabled=false; 

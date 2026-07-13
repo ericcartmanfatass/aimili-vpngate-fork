@@ -81,6 +81,9 @@ class WebRouteContextFactory:
     read_log_entries: Callable[[], list[dict[str, Any]]]
     login_html_fallback: str
     index_html_fallback: str
+    submit_operation: Callable[[str, str, Callable[[], Any], bool], tuple[dict[str, Any], bool]] | None = None
+    get_operation: Callable[[str], dict[str, Any] | None] | None = None
+    list_operations: Callable[[], list[dict[str, Any]]] | None = None
 
     def region_quality(self) -> RegionQualityRouteContext:
         return RegionQualityRouteContext(
@@ -96,6 +99,7 @@ class WebRouteContextFactory:
             check_quality_region=self.check_quality_region,
             bounded_int=self.bounded_int,
             scamalytics_errors=self.scamalytics_errors,
+            submit_operation=self.submit_operation,
         )
 
     def node(self) -> NodeRouteContext:
@@ -123,6 +127,9 @@ class WebRouteContextFactory:
             maintain_valid_nodes=self.maintain_valid_nodes,
             maintenance_running=self.maintenance_running,
             start_maintenance=self.start_maintenance,
+            submit_operation=self.submit_operation,
+            get_operation=self.get_operation,
+            list_operations=self.list_operations,
         )
 
     def config(self) -> ConfigRouteContext:
@@ -210,4 +217,5 @@ class WebRouteContextFactory:
         return ApiMutationRouteContext(
             region_quality=self.region_quality(),
             is_authorized=is_authorized,
+            config=self.config(),
         )

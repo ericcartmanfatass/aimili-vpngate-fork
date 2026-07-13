@@ -19,6 +19,7 @@ class RegionQualityRouteContext:
     check_quality_region: Callable[[str, int], dict[str, Any]]
     bounded_int: Callable[[Any, int, int, int], int]
     scamalytics_errors: tuple[type[BaseException], ...]
+    submit_operation: Callable[[str, str, Callable[[], Any], bool], tuple[dict[str, Any], bool]] | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,9 @@ class NodeRouteContext:
     maintain_valid_nodes: Callable[[bool], str]
     maintenance_running: Callable[[], bool]
     start_maintenance: Callable[[], None]
+    submit_operation: Callable[[str, str, Callable[[], Any], bool], tuple[dict[str, Any], bool]] | None = None
+    get_operation: Callable[[str], dict[str, Any] | None] | None = None
+    list_operations: Callable[[], list[dict[str, Any]]] | None = None
 
 
 @dataclass(frozen=True)
@@ -131,3 +135,4 @@ class ApiPostRouteContext:
 class ApiMutationRouteContext:
     region_quality: RegionQualityRouteContext
     is_authorized: Callable[[], bool]
+    config: ConfigRouteContext | None = None

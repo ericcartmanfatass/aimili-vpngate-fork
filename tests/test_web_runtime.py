@@ -122,6 +122,37 @@ class WebRuntimeWiringTests(unittest.TestCase):
         self.assertEqual(calls["print"], "[系统] restart now")
         self.assertEqual(calls["exit"], 0)
 
+    def test_route_contexts_share_operation_registry(self) -> None:
+        calls: dict[str, Any] = {}
+        wiring = build_wiring(calls)
+        node_context = wiring.route_context_factory().node()
+        self.assertIsNotNone(node_context.submit_operation)
+        self.assertIsNotNone(node_context.get_operation)
+
+        operation, deduplicated = node_context.submit_operation(  # type: ignore[misc]
+            "connect",
+            "request-1",
+            lambda: {"connected": True},
+            True,
+        )
+        duplicate, duplicate_was_reused = node_context.submit_operation(  # type: ignore[misc]
+            "connect",
+            "request-1",
+            lambda: {"connected": False},
+            True,
+        )
+
+        self.assertFalse(deduplicated)
+        self.assertTrue(duplicate_was_reused)
+        self.assertEqual(duplicate["id"], operation["id"])
+        self.assertEqual(len(calls["threads"]), 1)
+
+        calls["threads"][0]()
+        completed = node_context.get_operation(operation["id"])  # type: ignore[misc]
+        self.assertIsNotNone(completed)
+        self.assertEqual(completed["status"], "succeeded")  # type: ignore[index]
+        self.assertEqual(completed["result"], {"connected": True})  # type: ignore[index]
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -915,6 +915,89 @@ class WebRoutesTests(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(payload["logs"], [{"level": "INFO", "message": "ok"}])
 
+    def test_node_list_has_default_server_side_limit(self) -> None:
+        nodes = [{"id": f"jp_{index}", "country_short": "JP"} for index in range(250)]
+        handler = FakeHandler(path="/api/nodes")
+
+        self.assertTrue(handle_node_get(handler, "/api/nodes", build_node_context(nodes)))
+
+        payload, status = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(len(payload["nodes"]), 200)
+        self.assertEqual(payload["pagination"]["total"], 250)
+
+    def test_node_list_rejects_unbounded_limit(self) -> None:
+        handler = FakeHandler(path="/api/nodes?limit=999999")
+
+        self.assertTrue(handle_node_get(handler, "/api/nodes", build_node_context([])))
+
+        payload, status = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(payload["error_code"], "invalid_query")
+
+    def test_canonical_v1_nodes_route_keeps_compatible_payload(self) -> None:
+        handler = FakeHandler(path="/api/v1/nodes")
+
+        handled = handle_api_get(handler, "/api/v1/nodes", build_api_get_context([{"id": "jp_1"}]))
+
+        self.assertTrue(handled)
+        payload, status = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(payload["nodes"][0]["id"], "jp_1")
+
+    def test_v1_contract_discovery_and_settings_hide_secrets(self) -> None:
+        context = build_api_get_context()
+        object.__setattr__(
+            context.node,
+            "load_ui_config",
+            lambda: {"port": 8787, "routing_mode": "auto", "password_hash": "secret"},
+        )
+
+        discovery = FakeHandler(path="/api/v1")
+        self.assertTrue(handle_api_get(discovery, "/api/v1", context))
+        discovery_payload, _ = discovery.responses[-1]
+        self.assertEqual(discovery_payload["api_version"], "v1")
+
+        settings = FakeHandler(path="/api/v1/settings")
+        self.assertTrue(handle_api_get(settings, "/api/v1/settings", context))
+        settings_payload, _ = settings.responses[-1]
+        self.assertEqual(settings_payload["settings"], {"port": 8787, "routing_mode": "auto"})
+        self.assertNotIn("password_hash", str(settings_payload))
+
+    def test_canonical_v1_settings_put_dispatches_compatible_handler(self) -> None:
+        repository = FakeRegionRepository()
+        config = build_config_context({"port": 8787, "proxy_port": 7928})
+        context = ApiMutationRouteContext(
+            region_quality=build_context(repository),
+            is_authorized=lambda: True,
+            config=config,
+        )
+        handler = FakeHandler({"proxy_port": 7928, "routing_mode": "auto", "routing_ip_type": "all"})
+
+        self.assertTrue(handle_api_put(handler, "/api/v1/settings", context))
+
+        payload, status = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(payload["ok"])
+
+    def test_connect_returns_trackable_operation_and_idempotency_key(self) -> None:
+        context = build_node_context([])
+        submissions: list[tuple[str, str, bool]] = []
+
+        def submit(kind, key, task, reuse_completed):  # type: ignore[no-untyped-def]
+            submissions.append((kind, key, reuse_completed))
+            return ({"id": "operation-1", "kind": kind, "status": "queued"}, False)
+
+        object.__setattr__(context, "submit_operation", submit)
+        handler = FakeHandler({"id": "jp_1"}, headers={"X-Idempotency-Key": "request-1"})
+
+        self.assertTrue(handle_node_post(handler, "/api/connect", context))
+
+        payload, status = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.ACCEPTED)
+        self.assertEqual(payload["operation_id"], "operation-1")
+        self.assertEqual(submissions, [("connect", "request-1", True)])
+
 
 if __name__ == "__main__":
     unittest.main()

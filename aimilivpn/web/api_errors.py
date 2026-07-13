@@ -14,8 +14,14 @@ SAFE_ERROR_MESSAGES = {
     "quality_provider_failed": "quality provider unavailable",
     "authentication_failed": "login failed",
     "logout_failed": "logout failed",
+    "unauthorized": "Unauthorized",
+    "not_found": "not found",
+    "invalid_query": "invalid query parameters",
+    "invalid_node_ids": "invalid node identifiers",
+    "invalid_node_request": "invalid node request",
+    "invalid_idempotency_key": "invalid idempotency key",
+    "operation_capacity": "operation capacity reached",
 }
-
 
 def send_api_error(
     handler: Any,
@@ -44,3 +50,17 @@ def send_client_error(
     status: HTTPStatus = HTTPStatus.BAD_REQUEST,
 ) -> None:
     handler.send_json({"ok": False, "error": message, "error_code": code}, status)
+
+
+def send_unauthorized(handler: Any) -> None:
+    handler.send_json(
+        {"ok": False, "error": SAFE_ERROR_MESSAGES["unauthorized"], "error_code": "unauthorized"},
+        HTTPStatus.UNAUTHORIZED,
+    )
+
+
+def send_not_found(handler: Any) -> None:
+    handler.send_json(
+        {"ok": False, "error": SAFE_ERROR_MESSAGES["not_found"], "error_code": "not_found"},
+        HTTPStatus.NOT_FOUND,
+    )

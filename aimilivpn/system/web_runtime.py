@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, MutableMapping
 
 from aimilivpn.core.models import QualityResult, RegionProfile
 from aimilivpn.web.context_factory import WebRouteContextFactory
+from aimilivpn.web.operations import OperationRegistry
 from aimilivpn.web.server import WebServerRuntime
 from aimilivpn.web.status import probe_proxy_gateway, read_json_log_entries
 
@@ -75,6 +76,30 @@ class WebRuntimeWiring:
     sleep: Callable[[int | float], None]
     exit_process: Callable[[int], None]
     print_line: Callable[[str], None]
+    _operation_registry: OperationRegistry = field(default_factory=OperationRegistry, init=False)
+
+    def submit_operation(
+        self,
+        kind: str,
+        key: str,
+        task: Callable[[], Any],
+        reuse_completed: bool,
+    ) -> tuple[dict[str, Any], bool]:
+        record, duplicate = self._operation_registry.submit(
+            kind,
+            key,
+            task,
+            start_thread=self.start_thread,
+            reuse_completed=reuse_completed,
+        )
+        return record.public_dict(), duplicate
+
+    def get_operation(self, operation_id: str) -> dict[str, Any] | None:
+        record = self._operation_registry.get(operation_id)
+        return record.public_dict() if record is not None else None
+
+    def list_operations(self) -> list[dict[str, Any]]:
+        return [record.public_dict() for record in self._operation_registry.list()]
 
     def clear_active_sessions(self) -> None:
         with self.lock:
@@ -177,6 +202,9 @@ class WebRuntimeWiring:
             read_log_entries=self.read_api_log_entries,
             login_html_fallback=self.login_html_fallback(),
             index_html_fallback=self.index_html_fallback(),
+            submit_operation=self.submit_operation,
+            get_operation=self.get_operation,
+            list_operations=self.list_operations,
         )
 
     def web_server_runtime(self) -> WebServerRuntime:

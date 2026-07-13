@@ -65,6 +65,11 @@ authoritative release signal.
   region quality/risk routing, and persistent provider caching:
   `tests/test_storage_contract.py`, `tests/test_repository_facade.py`,
   `tests/test_regions.py`, and `tests/test_scamalytics.py`.
+- Versioned API aliases, bounded list queries, stable error identifiers,
+  idempotent background operations, and mutation auditing:
+  `tests/test_api_contract.py`, `tests/test_operations.py`,
+  `tests/test_http_utils.py`, `tests/test_web_routes.py`, and
+  `tests/test_web_server.py`.
 - Console/Web listen defaults: `tests/test_console_modules.py`,
   `tests/test_ui_config.py`, and the stage-specific tests added with network
   hardening.

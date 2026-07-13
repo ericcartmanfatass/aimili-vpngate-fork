@@ -97,7 +97,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             try:
                 context.validate_routing_region_target(routing_mode, force_country)
             except ValueError as exc:
-                send_client_error(handler, "invalid_configuration", str(exc))
+                send_client_error(handler, "invalid_configuration", "region not found")
                 return True
 
             ui_cfg = context.load_ui_config()
@@ -139,7 +139,7 @@ def handle_config_post(handler: Any, effective_path: str, context: ConfigRouteCo
             try:
                 context.validate_routing_region_target(routing_mode, force_country)
             except ValueError as exc:
-                send_client_error(handler, "invalid_configuration", str(exc))
+                send_client_error(handler, "invalid_configuration", "region not found")
                 return True
 
             ui_cfg = context.load_ui_config()

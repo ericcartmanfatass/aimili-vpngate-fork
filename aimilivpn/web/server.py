@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, MutableMapping, cast
 
 from aimilivpn.web.context_factory import WebRouteContextFactory
-from aimilivpn.web.api_errors import send_api_error
+from aimilivpn.web.api_errors import send_api_error, send_not_found, send_unauthorized
 from aimilivpn.web.http_utils import HttpResponseMixin, InvalidRequestBody, RequestBodyTooLarge
 from aimilivpn.web.proxy_trust import (
     DEFAULT_TRUSTED_PROXY_ADDRESSES,
@@ -159,21 +159,26 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         effective_path = self.validate_path()
         if effective_path == "":
             return
+        if effective_path.startswith("/api/") and not self.is_authorized():
+            send_unauthorized(self)
+            return
 
         route_contexts = self.runtime.route_context_factory()
         if handle_page_get(self, effective_path, route_contexts.page(self.is_authorized)):
             return
         if handle_api_get(self, effective_path, route_contexts.api_get()):
             return
-        self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        send_not_found(self)
 
     def do_POST(self) -> None:
         self.dispatch_safely(self._do_post)
 
     def _do_post(self) -> None:
+        self.validate_request_size()
         effective_path = self.validate_path()
         if effective_path == "":
             return
+        self._audit_write("POST", effective_path)
         handle_api_post(
             self,
             effective_path,
@@ -184,9 +189,11 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         self.dispatch_safely(self._do_put)
 
     def _do_put(self) -> None:
+        self.validate_request_size()
         effective_path = self.validate_path()
         if effective_path == "":
             return
+        self._audit_write("PUT", effective_path)
         handle_api_put(
             self,
             effective_path,
@@ -197,14 +204,20 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         self.dispatch_safely(self._do_delete)
 
     def _do_delete(self) -> None:
+        self.validate_request_size()
         effective_path = self.validate_path()
         if effective_path == "":
             return
+        self._audit_write("DELETE", effective_path)
         handle_api_delete(
             self,
             effective_path,
             self.runtime.route_context_factory().api_mutation(self.is_authorized),
         )
+
+    def _audit_write(self, method: str, effective_path: str) -> None:
+        client = self.client_address[0] if getattr(self, "client_address", None) else "unknown"
+        print(f"[web audit] mutation method={method} path={effective_path} client={client}", flush=True)
 
 
 def serve_web_forever(host: str, port: int, runtime: WebServerRuntime) -> None:

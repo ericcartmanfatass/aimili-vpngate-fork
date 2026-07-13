@@ -1,17 +1,38 @@
 from __future__ import annotations
 
-import urllib.parse
 from http import HTTPStatus
 from typing import Any
 
 from aimilivpn.core.regions import InvalidRegion, preview_region
+from aimilivpn.web.api_contract import InvalidListQuery, parse_list_query
 from aimilivpn.web.api_errors import send_api_error, send_client_error
 from aimilivpn.web.api import quality_to_dict, region_to_dict
+from aimilivpn.web.operations import OperationCapacityError
 from aimilivpn.web.route_contexts import RegionQualityRouteContext
 
 def handle_region_quality_get(handler: Any, effective_path: str, context: RegionQualityRouteContext) -> bool:
     if effective_path == "/api/regions":
-        handler.send_json({"regions": [region_to_dict(region) for region in context.read_regions()]})
+        try:
+            query = parse_list_query(
+                handler,
+                allowed_filters=("enabled",),
+                allowed_sort=("id", "name"),
+                default_sort="id",
+                default_limit=100,
+            )
+        except InvalidListQuery:
+            send_client_error(handler, "invalid_query", "invalid list query")
+            return True
+        regions = [region_to_dict(region) for region in context.read_regions()]
+        enabled = query.filters.get("enabled", "").lower()
+        if enabled:
+            if enabled not in {"true", "false"}:
+                send_client_error(handler, "invalid_query", "invalid list query")
+                return True
+            regions = [region for region in regions if bool(region.get("enabled")) is (enabled == "true")]
+        regions.sort(key=lambda region: str(region.get(query.sort) or "").lower(), reverse=query.order == "desc")
+        page, pagination = query.page(regions)
+        handler.send_json({"regions": page, "pagination": pagination})
         return True
 
     if effective_path.startswith("/api/regions/"):
@@ -31,8 +52,19 @@ def handle_region_quality_get(handler: Any, effective_path: str, context: Region
         return True
 
     if effective_path == "/api/quality":
-        query = urllib.parse.parse_qs(urllib.parse.urlsplit(handler.path).query)
-        node_id = str((query.get("node_id") or [""])[0]).strip()
+        try:
+            query = parse_list_query(
+                handler,
+                allowed_filters=("node_id", "provider", "label"),
+                allowed_sort=("checked_at", "score", "risk_score", "node_id"),
+                default_sort="checked_at",
+                default_order="desc",
+                default_limit=100,
+            )
+        except InvalidListQuery:
+            send_client_error(handler, "invalid_query", "invalid list query")
+            return True
+        node_id = query.filters.get("node_id", "")
         if node_id:
             quality = context.latest_quality_for_node(node_id)
             if quality is None:
@@ -45,7 +77,18 @@ def handle_region_quality_get(handler: Any, effective_path: str, context: Region
             quality_to_dict(result)
             for result in context.latest_quality_map().values()
         ]
-        handler.send_json({"ok": True, "qualities": qualities})
+        provider = query.filters.get("provider", "")
+        label = query.filters.get("label", "")
+        if provider:
+            qualities = [item for item in qualities if item and str(item.get("risk_provider") or "") == provider]
+        if label:
+            qualities = [item for item in qualities if item and str(item.get("label") or "") == label]
+        qualities.sort(
+            key=lambda item: _quality_sort_value(item or {}, query.sort),
+            reverse=query.order == "desc",
+        )
+        page, pagination = query.page(qualities)
+        handler.send_json({"ok": True, "qualities": page, "pagination": pagination})
         return True
 
     return False
@@ -59,7 +102,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             saved_region = context.region_repository.get(region.id) or region
             handler.send_json({"ok": True, "region": region_to_dict(saved_region)}, HTTPStatus.CREATED)
         except (InvalidRegion, ValueError) as exc:
-            send_client_error(handler, "invalid_region", str(exc))
+            send_client_error(handler, "invalid_region", "invalid region")
         except Exception as exc:
             send_api_error(handler, "region_operation_failed", exc=exc, operation="region create")
         return True
@@ -75,7 +118,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
                 preview = preview_region(region, context.read_nodes(), context.latest_quality_map())
                 handler.send_json({"ok": True, "preview": preview.__dict__})
             except (InvalidRegion, ValueError) as exc:
-                send_client_error(handler, "invalid_region", str(exc))
+                send_client_error(handler, "invalid_region", "invalid region")
             except Exception as exc:
                 send_api_error(handler, "region_operation_failed", exc=exc, operation="region preview")
             return True
@@ -89,11 +132,22 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             if not node_id:
                 handler.send_json({"ok": False, "error": "node_id is required"}, HTTPStatus.BAD_REQUEST)
                 return True
+            if context.submit_operation is not None:
+                return _submit_quality_operation(
+                    handler,
+                    context,
+                    "quality_check_node",
+                    node_id,
+                    lambda: {
+                        "node": context.test_node_by_id(node_id),
+                        "quality": quality_to_dict(context.latest_quality_for_node(node_id)),
+                    },
+                )
             updated_node = context.test_node_by_id(node_id)
             quality = context.latest_quality_for_node(node_id)
             handler.send_json({"ok": True, "node": updated_node, "quality": quality_to_dict(quality)})
         except ValueError as exc:
-            send_client_error(handler, "node_not_found", str(exc), HTTPStatus.NOT_FOUND)
+            send_client_error(handler, "node_not_found", "node not found", HTTPStatus.NOT_FOUND)
         except Exception as exc:
             send_api_error(handler, "node_operation_failed", exc=exc, operation="quality node check")
         return True
@@ -102,10 +156,20 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
         try:
             payload = handler.read_json_body()
             ip = str(payload.get("ip") or "").strip()
+            if not ip:
+                raise ValueError("ip is required")
+            if context.submit_operation is not None:
+                return _submit_quality_operation(
+                    handler,
+                    context,
+                    "quality_check_ip",
+                    ip,
+                    lambda: {"quality": quality_to_dict(context.check_quality_ip(ip))},
+                )
             result = context.check_quality_ip(ip)
             handler.send_json({"ok": True, "quality": quality_to_dict(result)})
         except ValueError as exc:
-            send_client_error(handler, "invalid_quality_request", str(exc))
+            send_client_error(handler, "invalid_quality_request", "invalid quality request")
         except context.scamalytics_errors as exc:
             send_api_error(
                 handler,
@@ -123,9 +187,17 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             payload = handler.read_json_body()
             region_id = str(payload.get("id") or payload.get("region_id") or "").strip()
             limit = context.bounded_int(payload.get("limit"), 20, 1, 100)
+            if context.submit_operation is not None:
+                return _submit_quality_operation(
+                    handler,
+                    context,
+                    "quality_check_region",
+                    f"{region_id}:{limit}",
+                    lambda: context.check_quality_region(region_id, limit=limit),
+                )
             handler.send_json({"ok": True, **context.check_quality_region(region_id, limit=limit)})
         except ValueError as exc:
-            send_client_error(handler, "invalid_quality_request", str(exc))
+            send_client_error(handler, "invalid_quality_request", "invalid quality request")
         except KeyError:
             handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
@@ -156,7 +228,7 @@ def handle_region_put(handler: Any, effective_path: str, context: RegionQualityR
         saved_region = context.region_repository.get(region_id) or region
         handler.send_json({"ok": True, "region": region_to_dict(saved_region)})
     except (InvalidRegion, ValueError) as exc:
-        send_client_error(handler, "invalid_region", str(exc))
+        send_client_error(handler, "invalid_region", "invalid region")
     except KeyError:
         handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
     except Exception as exc:
@@ -180,3 +252,43 @@ def handle_region_delete(handler: Any, effective_path: str, context: RegionQuali
     except Exception as exc:
         send_api_error(handler, "region_operation_failed", exc=exc, operation="region delete")
     return True
+
+
+def _submit_quality_operation(
+    handler: Any,
+    context: RegionQualityRouteContext,
+    kind: str,
+    target: str,
+    task: Any,
+) -> bool:
+    explicit_key = str(getattr(handler, "headers", {}).get("X-Idempotency-Key", "") or "").strip()
+    if len(explicit_key) > 128:
+        send_client_error(handler, "invalid_idempotency_key", "invalid idempotency key")
+        return True
+    key = explicit_key or f"implicit:{kind}:{target}"
+    assert context.submit_operation is not None
+    try:
+        operation, duplicate = context.submit_operation(kind, key, task, bool(explicit_key))
+    except OperationCapacityError:
+        send_client_error(handler, "operation_capacity", "operation capacity reached", HTTPStatus.SERVICE_UNAVAILABLE)
+        return True
+    handler.send_json(
+        {
+            "ok": True,
+            "operation_id": operation["id"],
+            "operation": operation,
+            "deduplicated": duplicate,
+        },
+        HTTPStatus.ACCEPTED,
+    )
+    return True
+
+
+def _quality_sort_value(item: dict[str, Any], field: str) -> Any:
+    value = item.get(field)
+    if field in {"score", "risk_score"}:
+        try:
+            return int(value) if value is not None else -1
+        except (TypeError, ValueError):
+            return -1
+    return str(value or "").lower()

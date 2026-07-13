@@ -130,6 +130,43 @@ class WebRequestHandlerTests(unittest.TestCase):
         self.assertEqual(payload["error_code"], "internal_error")
         self.assertNotIn("private filesystem", str(payload))
 
+    def test_api_get_requires_authorization(self) -> None:
+        handler = build_handler(build_runtime())
+        handler.validate_path = lambda: "/api/v1/nodes"  # type: ignore[method-assign]
+        responses: list[tuple[dict[str, object], HTTPStatus]] = []
+        handler.send_json = lambda payload, status: responses.append((payload, status))  # type: ignore[method-assign]
+
+        handler._do_get()
+
+        payload, status = responses[-1]
+        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(payload["error_code"], "unauthorized")
+
+    def test_all_mutations_reject_oversized_body_before_routing(self) -> None:
+        handler = build_handler(build_runtime(), {"Content-Length": "262145"})
+        responses: list[tuple[dict[str, object], HTTPStatus]] = []
+        handler.send_json = lambda payload, status: responses.append((payload, status))  # type: ignore[method-assign]
+
+        handler.dispatch_safely(handler._do_post)
+
+        payload, status = responses[-1]
+        self.assertEqual(status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        self.assertEqual(payload["error_code"], "request_too_large")
+
+    def test_mutation_emits_payload_free_audit_record(self) -> None:
+        base = build_runtime(sessions={"session-1": 110.0})
+        route_context = SimpleNamespace(now=lambda: 100.0, api_post=lambda *args: object())
+        runtime = WebServerRuntime(**{**base.__dict__, "route_context_factory": lambda: route_context})
+        handler = build_handler(runtime, {"Cookie": "session=session-1", "Content-Length": "0"})
+        handler.validate_path = lambda: "/api/connect"  # type: ignore[method-assign]
+
+        with patch("aimilivpn.web.server.handle_api_post"), redirect_stdout(StringIO()) as output:
+            handler._do_post()
+
+        audit = output.getvalue()
+        self.assertIn("mutation method=POST path=/api/connect", audit)
+        self.assertNotIn("password", audit)
+
 
 if __name__ == "__main__":
     unittest.main()
