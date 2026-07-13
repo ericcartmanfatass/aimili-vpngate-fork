@@ -7,6 +7,7 @@ from http import HTTPStatus
 from typing import Any
 
 from aimilivpn.web.route_contexts import AuthRouteContext
+from aimilivpn.web.proxy_trust import secure_cookie_suffix
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,13 @@ def parse_cookie_header(cookie_header: str | None) -> dict[str, str]:
         if key:
             cookies[key] = value.strip()
     return cookies
+
+
+def redact_secret_path(message: str, secret_path: str | None) -> str:
+    secret = str(secret_path or "").strip("/")
+    if not secret:
+        return message
+    return message.replace(f"/{secret}", "/<secret-path>")
 
 
 def is_session_authorized(
@@ -100,7 +108,8 @@ def handle_auth_post(handler: Any, effective_path: str, context: AuthRouteContex
                 _send_cookie_json(
                     handler,
                     {"ok": True},
-                    f"session={token}; Path={cookie_path}; HttpOnly; SameSite=Lax; Max-Age=2592000",
+                    f"session={token}; Path={cookie_path}; HttpOnly; SameSite=Lax; Max-Age=2592000"
+                    f"{secure_cookie_suffix(handler)}",
                 )
             else:
                 handler.send_json({"ok": False, "error": "用户名或密码不正确，请重新输入"}, HTTPStatus.FORBIDDEN)
@@ -120,7 +129,8 @@ def handle_auth_post(handler: Any, effective_path: str, context: AuthRouteContex
             _send_cookie_json(
                 handler,
                 {"ok": True},
-                f"session=; Path={cookie_path}; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+                f"session=; Path={cookie_path}; HttpOnly; SameSite=Lax; Max-Age=0; "
+                f"Expires=Thu, 01 Jan 1970 00:00:00 GMT{secure_cookie_suffix(handler)}",
             )
         except Exception as exc:
             handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)

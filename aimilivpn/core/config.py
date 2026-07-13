@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from aimilivpn.web.proxy_trust import DEFAULT_TRUSTED_PROXY_ADDRESSES, parse_trusted_proxy_addresses
+
 
 def env_int(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
     raw = os.environ.get(name)
@@ -47,6 +49,8 @@ class AppConfig:
     policy_table: str
     allowed_countries: set[str]
     allow_insecure_fetch: bool
+    trust_proxy_headers: bool = False
+    trusted_proxy_addresses: tuple[str, ...] = DEFAULT_TRUSTED_PROXY_ADDRESSES
     api_url: str = "https://www.vpngate.net/api/iphone/"
     max_scan_rows: int = 300
     scamalytics_username: str = ""
@@ -94,8 +98,12 @@ def load_config(root_dir: Path | None = None) -> AppConfig:
         auth_file=data_dir / "vpngate_auth.txt",
         local_proxy_host=env_text("LOCAL_PROXY_HOST", "127.0.0.1"),
         local_proxy_port=env_int("LOCAL_PROXY_PORT", 7928, 1, 65535),
-        ui_host=env_text("UI_HOST", "::"),
+        ui_host=env_text("UI_HOST", "127.0.0.1"),
         ui_port=env_int("UI_PORT", 8787, 1, 65535),
+        trust_proxy_headers=env_bool("AIMILIVPN_TRUST_PROXY_HEADERS"),
+        trusted_proxy_addresses=parse_trusted_proxy_addresses(
+            os.environ.get("AIMILIVPN_TRUSTED_PROXY_ADDRESSES")
+        ),
         openvpn_cmd=env_text("OPENVPN_CMD", "openvpn"),
         tun_dev=os.environ.get("TUN_DEV", "tun0").strip() or "tun0",
         policy_table=os.environ.get("POLICY_TABLE", "100").strip() or "100",

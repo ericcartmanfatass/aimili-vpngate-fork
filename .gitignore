@@ -59,6 +59,7 @@ AimiliVPN_Analysis_ZH.md
 
 # ---- 临时和测试文件 ----
 scratch/
+.test-tmp/
 *连接配置*
 /test_*.py
 *.bak

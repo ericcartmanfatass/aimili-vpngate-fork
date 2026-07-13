@@ -53,6 +53,8 @@ def build_wiring(calls: dict[str, Any] | None = None) -> WebRuntimeWiring:
         check_proxy_health=lambda: {"ok": True},
         ui_host=lambda: "127.0.0.1",
         ui_port=lambda: 8787,
+        trust_proxy_headers=lambda: True,
+        trusted_proxy_addresses=lambda: ("127.0.0.1",),
         proxy_host=lambda: "127.0.0.1",
         proxy_port=lambda: 7928,
         active_openvpn_running=lambda: True,
@@ -91,6 +93,8 @@ class WebRuntimeWiringTests(unittest.TestCase):
         wiring.add_active_session("token-2", 300.0)
         wiring.clear_active_sessions()
         self.assertEqual(runtime.active_sessions, {})
+        self.assertTrue(runtime.trust_proxy_headers)
+        self.assertEqual(runtime.trusted_proxy_addresses, ("127.0.0.1",))
 
     def test_route_context_factory_uses_wiring_helpers(self) -> None:
         calls: dict[str, Any] = {}

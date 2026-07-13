@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from aimilivpn.core.auth import generate_password, migrate_auth_config
+from aimilivpn.web.proxy_trust import parse_trusted_proxy_addresses
 
 
 def env_text(name: str, default: str) -> str:
@@ -29,12 +30,23 @@ def env_int(name: str, default: int, min_value: int | None = None, max_value: in
     return value
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = (os.environ.get(name) or "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
 CONFIG_DIR = Path(env_text("AIMILIVPN_CONFIG_DIR", "/etc/aimilivpn"))
 INSTALL_DIR = Path(env_text("AIMILIVPN_INSTALL_DIR", "/opt/aimilivpn"))
 AUTH_FILE = Path(env_text("AIMILIVPN_CONSOLE_AUTH", str(CONFIG_DIR / "console_auth.json")))
 INSTANCES_FILE = Path(env_text("AIMILIVPN_INSTANCES_FILE", str(CONFIG_DIR / "instances.json")))
-CONSOLE_HOST = env_text("CONSOLE_HOST", "0.0.0.0")
+CONSOLE_HOST = env_text("CONSOLE_HOST", "127.0.0.1")
 CONSOLE_PORT = env_int("CONSOLE_PORT", 8788, 1, 65535)
+TRUST_PROXY_HEADERS = env_bool("AIMILIVPN_TRUST_PROXY_HEADERS")
+TRUSTED_PROXY_ADDRESSES = parse_trusted_proxy_addresses(
+    os.environ.get("AIMILIVPN_TRUSTED_PROXY_ADDRESSES")
+)
 
 
 def random_token(length: int = 24) -> str:

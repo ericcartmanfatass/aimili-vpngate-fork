@@ -59,6 +59,8 @@ def build_web_runtime(ctx: object) -> None:
         check_proxy_health=lambda: ctx.check_proxy_health(),
         ui_host=lambda: ctx.ui_host,
         ui_port=lambda: ctx.ui_port,
+        trust_proxy_headers=lambda: ctx.trust_proxy_headers,
+        trusted_proxy_addresses=lambda: ctx.trusted_proxy_addresses,
         proxy_host=lambda: ctx.local_proxy_host,
         proxy_port=lambda: ctx.local_proxy_port,
         active_openvpn_running=lambda: ctx.active_openvpn_running(),

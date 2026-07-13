@@ -47,6 +47,8 @@ def build_web_runtime_wiring(runtime: Any) -> WebRuntimeWiring:
         check_proxy_health=runtime.check_proxy_health,
         ui_host=runtime.ui_host,
         ui_port=runtime.ui_port,
+        trust_proxy_headers=runtime.trust_proxy_headers,
+        trusted_proxy_addresses=runtime.trusted_proxy_addresses,
         proxy_host=runtime.proxy_host,
         proxy_port=runtime.proxy_port,
         active_openvpn_running=runtime.active_openvpn_running,

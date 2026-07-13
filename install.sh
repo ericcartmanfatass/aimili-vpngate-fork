@@ -160,7 +160,7 @@ if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
             fi
         fi
     done
-    for src_dir in aimilivpn tests; do
+    for src_dir in aimilivpn tests docs; do
         if [ -d "${SCRIPT_DIR}/${src_dir}" ]; then
             rm -rf "${INSTALL_DIR:?}/${src_dir}"
             cp -a "${SCRIPT_DIR}/${src_dir}" "${INSTALL_DIR}/${src_dir}"
@@ -233,7 +233,7 @@ if not auth_file.exists():
         "username": "admin",
         "password_hash": hash_password(password),
         "secret_path": secret_path,
-        "host": "0.0.0.0",
+        "host": "127.0.0.1",
         "port": 8788,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     os.chmod(auth_file, 0o600)
@@ -445,7 +445,7 @@ from aimilivpn.core.auth import hash_password
 
 auth_file, ui_port, secret_path, username, password = sys.argv[1:6]
 cfg = {
-    "host": "::",
+    "host": "127.0.0.1",
     "port": int(ui_port),
     "proxy_port": 7928,
     "secret_path": secret_path,
@@ -534,13 +534,11 @@ if [ -z "$ACTIVE_ID" ]; then
 fi
 fi
 
-SECRET_PATH="EJsW2EeBo9lY"
 USERNAME="未配置"
 UI_PORT=8787
 PROXY_PORT=7928
 AUTH_FILE="${INSTALL_DIR}/vpngate_data/ui_auth.json"
 if [ -f "$AUTH_FILE" ]; then
-    SECRET_PATH=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('secret_path', 'EJsW2EeBo9lY'))" 2>/dev/null || echo "EJsW2EeBo9lY")
     USERNAME=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('username', '未配置'))" 2>/dev/null || echo "未配置")
     UI_PORT=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('port', 8787))" 2>/dev/null || echo "8787")
     PROXY_PORT=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('proxy_port', 7928))" 2>/dev/null || echo "7928")
@@ -552,10 +550,6 @@ PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org || curl -s --max-time 3 h
 if [ -d "${INSTALL_DIR}/vpngate_data" ]; then
     echo -n "$PUBLIC_IP" > "${INSTALL_DIR}/vpngate_data/public_ip.txt"
 fi
-
-# Get VPS public IPv6
-echo -e "正在获取 VPS 公网 IPv6..."
-PUBLIC_IPV6=$(curl -6 -s --max-time 3 https://api.ipify.org || curl -6 -s --max-time 3 https://ifconfig.me || curl -6 -s --max-time 3 icanhazip.com || echo "")
 
 if [ -f /etc/aimilivpn/instances.json ] && [ -f /etc/aimilivpn/console_auth.json ]; then
     python3 - "$PUBLIC_IP" <<'PY'
@@ -571,16 +565,14 @@ for item in instances:
         data_dir.mkdir(parents=True, exist_ok=True)
         (data_dir / "public_ip.txt").write_text(public_ip, encoding="utf-8")
 PY
-    CONSOLE_SECRET=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('secret_path',''))" 2>/dev/null || echo "")
     CONSOLE_USER=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('username','admin'))" 2>/dev/null || echo "admin")
     CONSOLE_PORT=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('port',8788))" 2>/dev/null || echo "8788")
     echo -e "\n${GREEN}==========================================================${PLAIN}"
     echo -e "${GREEN}             AimiliVPN multi-instance deployment complete${PLAIN}"
     echo -e "${GREEN}==========================================================${PLAIN}"
-    echo -e "  * Unified console:  ${BLUE}http://${PUBLIC_IP}:${CONSOLE_PORT}/${CONSOLE_SECRET}/${PLAIN}"
-    if [ -n "$PUBLIC_IPV6" ]; then
-        echo -e "  * Unified console (IPv6):  ${BLUE}http://[${PUBLIC_IPV6}]:${CONSOLE_PORT}/${CONSOLE_SECRET}/${PLAIN}"
-    fi
+    echo -e "  * Unified console upstream: ${BLUE}http://127.0.0.1:${CONSOLE_PORT}/${PLAIN} (loopback only)"
+    echo -e "  * Remote management: configure a TLS reverse proxy; see ${INSTALL_DIR}/docs/reverse-proxy.md"
+    echo -e "  * Secret path is intentionally hidden from install logs; run ${YELLOW}ml web${PLAIN} when needed"
     echo -e "  * Console username: ${YELLOW}${CONSOLE_USER}${PLAIN}"
     echo -e "  * Console password: ${YELLOW}set; use the Web UI to change it${PLAIN}"
     echo -e " --------------------------------------------------------"
@@ -604,10 +596,9 @@ fi
 echo -e "\n${GREEN}==========================================================${PLAIN}"
 echo -e "${GREEN}             AimiliVPN 源码一键部署已完成！${PLAIN}"
 echo -e "${GREEN}==========================================================${PLAIN}"
-echo -e "  * 网页控制面板:  ${BLUE}http://${PUBLIC_IP}:${UI_PORT}/${SECRET_PATH}/${PLAIN}"
-if [ -n "$PUBLIC_IPV6" ]; then
-    echo -e "  * 网页控制面板(IPv6):  ${BLUE}http://[${PUBLIC_IPV6}]:${UI_PORT}/${SECRET_PATH}/${PLAIN}"
-fi
+echo -e "  * 网页控制面板 upstream: ${BLUE}http://127.0.0.1:${UI_PORT}/${PLAIN}（仅 loopback）"
+echo -e "  * 远程管理必须使用 TLS 反向代理：${INSTALL_DIR}/docs/reverse-proxy.md"
+echo -e "  * 安装日志不输出安全路径；需要时运行 ${YELLOW}ml web${PLAIN}"
 echo -e "  * 网页管理账号:  ${YELLOW}${USERNAME}${PLAIN}"
 echo -e "  * Web password:    ${YELLOW}set; use the Web UI to change it${PLAIN}"
 echo -e "  * HTTP/SOCKS5 代理端口:  ${BLUE}http://127.0.0.1:${PROXY_PORT}/${PLAIN}  或  ${BLUE}http://[::1]:${PROXY_PORT}/${PLAIN}"

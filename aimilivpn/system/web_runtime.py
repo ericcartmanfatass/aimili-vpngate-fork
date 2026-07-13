@@ -52,6 +52,8 @@ class WebRuntimeWiring:
     check_proxy_health: Callable[[], dict[str, Any]]
     ui_host: Callable[[], str]
     ui_port: Callable[[], int]
+    trust_proxy_headers: Callable[[], bool]
+    trusted_proxy_addresses: Callable[[], tuple[str, ...]]
     proxy_host: Callable[[], str]
     proxy_port: Callable[[], int]
     active_openvpn_running: Callable[[], bool]
@@ -184,6 +186,8 @@ class WebRuntimeWiring:
             active_sessions=self.active_sessions,
             session_lock=self.lock,
             console_token=self.console_token,
+            trust_proxy_headers=self.trust_proxy_headers(),
+            trusted_proxy_addresses=self.trusted_proxy_addresses(),
         )
 
     @staticmethod

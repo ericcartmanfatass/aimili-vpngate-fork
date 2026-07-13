@@ -9,7 +9,11 @@ from typing import Any
 
 from aimilivpn.core.auth import generate_session_token, verify_password, verify_username
 from aimilivpn.system.console_backend import backend_request, service_action, service_active
-from aimilivpn.system.console_config import load_console_auth
+from aimilivpn.system.console_config import (
+    TRUST_PROXY_HEADERS,
+    TRUSTED_PROXY_ADDRESSES,
+    load_console_auth,
+)
 from aimilivpn.system.console_instances import (
     instance_by_id,
     instance_state as build_instance_state,
@@ -18,6 +22,8 @@ from aimilivpn.system.console_instances import (
     stripped_nodes as build_stripped_nodes,
 )
 from aimilivpn.web.http_utils import HttpResponseMixin
+from aimilivpn.web.auth_routes import redact_secret_path
+from aimilivpn.web.proxy_trust import request_uses_trusted_https, secure_cookie_suffix
 from aimilivpn.web.static_assets import get_static_asset, guess_content_type
 from aimilivpn.web.templates import get_console_index_html, get_console_login_html
 
@@ -56,7 +62,8 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         return ""
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        print(f"[console] {fmt % args}", flush=True)
+        message = redact_secret_path(fmt % args, self.secret_path())
+        print(f"[console] {message}", flush=True)
 
     def body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
@@ -74,6 +81,13 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
                 token = item.split("=", 1)[1]
                 break
         return bool(token and sessions.get(token, 0) > time.time())
+
+    def is_secure_request(self) -> bool:
+        return request_uses_trusted_https(
+            self,
+            trust_proxy_headers=TRUST_PROXY_HEADERS,
+            trusted_proxy_addresses=TRUSTED_PROXY_ADDRESSES,
+        )
 
     def do_GET(self) -> None:
         path = self.effective_path()
@@ -137,7 +151,11 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Set-Cookie", f"console_session={token}; Path=/{self.secret_path().strip('/')}/; HttpOnly; SameSite=Lax; Max-Age=2592000")
+                self.send_header(
+                    "Set-Cookie",
+                    f"console_session={token}; Path=/{self.secret_path().strip('/')}/; "
+                    f"HttpOnly; SameSite=Lax; Max-Age=2592000{secure_cookie_suffix(self)}",
+                )
                 self.end_headers()
                 self.wfile.write(body)
             else:
@@ -145,7 +163,11 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             return
         if path == "/api/logout":
             self.send_response(HTTPStatus.OK)
-            self.send_header("Set-Cookie", f"console_session=; Path=/{self.secret_path().strip('/')}/; HttpOnly; SameSite=Lax; Max-Age=0")
+            self.send_header(
+                "Set-Cookie",
+                f"console_session=; Path=/{self.secret_path().strip('/')}/; "
+                f"HttpOnly; SameSite=Lax; Max-Age=0{secure_cookie_suffix(self)}",
+            )
             self.end_headers()
             return
         if not self.authorized():

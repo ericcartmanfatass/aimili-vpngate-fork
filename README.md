@@ -9,6 +9,8 @@ Bilingual: [中文](#中文) | [English](#english)
 
 AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN 代理网关。它以纯 Python 标准库编写，内置美观响应式的管理网页，提供智能并发测速、多路由模式、出站代理网关、实时日志等强大功能。
 
+运行环境以 Linux 为准，最低支持 CPython 3.10，参考版本为 CPython 3.12；Ubuntu 22.04/24.04 与 Python 3.10/3.12 的组合由持续集成验证。开发与回归命令见 [TESTING.md](TESTING.md)。
+
 ### 📢 官方交流与反馈
 [![Telegram](https://img.shields.io/badge/TG交流群-arestemple-2CA5E0?style=flat-square&logo=telegram&logoColor=white)](https://t.me/arestemple)
 [![Forum](https://img.shields.io/badge/交流论坛-339936.xyz-orange?style=flat-square&logo=discourse&logoColor=white)](https://339936.xyz)
@@ -25,7 +27,7 @@ AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/main/install.sh)
 ```
-> 💡 **小贴士**：部署完成后，终端会输出管理网页的专属链接（含随机安全后缀，如 `http://your_vps_ip:8787/u71e9IXp4TPx`）。在终端中输入 `ml` 命令可以随时调出交互式命令行管理菜单。
+> 💡 **安全提示**：管理网页默认只监听 `127.0.0.1`，安装日志不会输出完整安全路径。远程访问请先按 [TLS 反向代理指南](docs/reverse-proxy.md) 配置 Nginx/Caddy，再使用 `ml web` 主动查询入口。随机路径只能降低扫描噪声，不能替代密码和 HTTPS。
 
 ---
 
@@ -34,7 +36,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpnga
 部署成功后，如何使用它进行科学上网？
 
 #### 第一步：登录 Web 管理后台
-打开浏览器，访问部署完成时提示的专属后台地址（含安全后缀），即可进入精美的暗黑玻璃拟物风管理界面。
+先按 [TLS 反向代理指南](docs/reverse-proxy.md) 配置 HTTPS，再运行 `ml web` 查询管理入口。临时维护可使用 SSH 端口转发，禁止把 `8787`/`8788` 明文端口直接开放到公网。
 
 #### 第二步：获取并连接节点
 1. 首次进入后台，节点列表可能正在进行首次自动测速与拉取。
@@ -65,7 +67,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpnga
 * **⚙️ 本地其他服务配置**:
   将本机的其他代理工具、爬虫框架或服务的出战代理设置为 `127.0.0.1:7928`。
 
-> 💡 **小贴士**：如果您确实需要对公网其他设备开放此代理端口，可以通过设置环境变量 `export LOCAL_PROXY_HOST="::"` 重新启动服务以允许公网接入。
+> 💡 **安全提示**：代理端口不是管理网页的反向代理入口。不要将代理端口直接开放到公网。
 
 ---
 
@@ -92,15 +94,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpnga
 * **解决办法**：请登录您的 VPS 服务商控制面板（如 SolusVM/Proxmox），找到 **Enable TUN/TAP** / **开启 TUN** 选项并启用，然后重启 VPS。如无此选项，请工单联系客服开启。
 
 #### 2. 网页管理后台无法打开（链接超时或拒绝连接）
-* **原因 1**：VPS 本身自带防火墙（如 UFW、firewalld 或 iptables）阻断了管理端口（默认 `8787`）或代理端口（默认 `7928`）。
-* **解决办法 1**：请在终端放行对应端口：
-  * **UFW (Ubuntu/Debian)**: `ufw allow 8787/tcp && ufw allow 7928/tcp`
-  * **Firewalld (CentOS/RHEL)**: `firewall-cmd --zone=public --add-port=8787/tcp --permanent && firewall-cmd --zone=public --add-port=7928/tcp --permanent && firewall-cmd --reload`
-* **原因 2**：云服务商的“安全组”或“网络访问控制列表 (ACL)”未放行端口。
-* **解决办法 2**：**非常重要！** 登录云服务商控制台（如阿里云、腾讯云、AWS、Oracle Cloud等），找到您 VPS 实例的 **安全组规则 (Security Group)**，在入站规则中添加：
-  - **协议类型**: `TCP`
-  - **端口范围**: `8787` (管理网页) 和 `7928` (代理端口)
-  - **授权对象/源IP**: `0.0.0.0/0` (允许所有人，或指定您自己的家庭公网 IP 提高安全性)
+* **原因**：管理服务按设计只监听 loopback，不能通过 VPS 公网 IP 直接访问。
+* **解决办法**：配置 [TLS 反向代理](docs/reverse-proxy.md)，公网只开放 HTTPS `443`；或使用 SSH 端口转发进行临时维护。不要开放 `8787`、`8788` 或 `7928`。
 
 #### 3. 页面提示 `API Domain Blocked` 且备选节点显示为 0
 * **原因**：您的 VPS DNS 解析异常，或者官方 VPNGate 域名遭防火墙拦截污染，导致无法下载节点列表。
@@ -130,6 +125,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpnga
 
 AimiliVPN is a high-performance, zero-dependency VPN proxy gateway built entirely using Python's standard library. It parses official VPNGate servers, benchmarks latency, and routes traffic through a built-in dual-protocol (HTTP/SOCKS5) proxy server.
 
+Linux is the supported runtime target. CPython 3.10 is the minimum supported version and CPython 3.12 is the reference version; CI verifies Ubuntu 22.04/24.04 with Python 3.10/3.12. See [TESTING.md](TESTING.md) for development and regression commands.
+
 ### 📢 Community & Feedback
 - **Telegram Group**: [arestemple](https://t.me/arestemple)
 - **Discussion Forum**: [339936.xyz](https://339936.xyz)
@@ -147,14 +144,14 @@ Run the corresponding command on your Linux VPS as root:
 bash <(curl -Ls https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/main/install.sh)
 ```
 
-> 💡 **Quick Note**: Once installed, copy the printed URL from the terminal to access the Web UI. Type the `ml` command in the terminal to summon the interactive CLI management console.
+> 💡 **Security note**: Management services bind to `127.0.0.1`, and install logs do not print the complete secret-path URL. Configure the [TLS reverse proxy](docs/reverse-proxy.md), then run `ml web` when you need the entry URL. The random path is scan-noise reduction, not authentication or encryption.
 
 ---
 
 ### 💡 Quick Start Guide
 
 #### Step 1: Access the Web UI
-Open your browser and navigate to the printed URL (e.g. `http://your_vps_ip:8787/u71e9IXp4TPx`).
+Configure the [TLS reverse proxy](docs/reverse-proxy.md), then run `ml web` to retrieve the management entry. Use an SSH tunnel for temporary maintenance; never expose plaintext ports `8787` or `8788` publicly.
 
 #### Step 2: Select Node and Mode
 1. Wait for the program to complete its first automatic node speed benchmarks.
@@ -181,7 +178,7 @@ To prevent unauthorized scanning and abuse of the proxy port on the public inter
 * **⚙️ Other local services**:
   Configure your scrapers, frameworks, or utility tools on this VPS to send traffic via `127.0.0.1:7928`.
 
-> 💡 **Quick Note**: If you really need to open this proxy port to the public internet, you can set the environment variable `export LOCAL_PROXY_HOST="::"` before running the manager.
+> 💡 **Security note**: Do not expose the proxy port directly to the public internet.
 
 ---
 
@@ -192,12 +189,8 @@ To prevent unauthorized scanning and abuse of the proxy port on the public inter
 * **Solution**: Enable **TUN/TAP** in your VPS SolusVM/KiwiVM control panel, or submit a support ticket to your hosting provider.
 
 #### 2. Cannot open the Web UI in the browser
-* **Reason 1**: The built-in firewall (UFW or firewalld) is blocking ports `8787` (Web UI) and `7928` (Proxy).
-* **Solution 1**: Allow the ports in your OS firewall:
-  * **UFW**: `ufw allow 8787/tcp && ufw allow 7928/tcp`
-  * **Firewalld**: `firewall-cmd --add-port=8787/tcp --permanent && firewall-cmd --add-port=7928/tcp --permanent && firewall-cmd --reload`
-* **Reason 2**: Service provider security group blocking ports.
-* **Solution 2**: **Crucial!** Log in to your cloud provider console (AWS, Aliyun, Oracle Cloud, etc.), locate the **Security Group** for your instance, and add an inbound TCP rule to allow ports `8787` and `7928` from `0.0.0.0/0`.
+* **Reason**: Management services intentionally listen on loopback and are not reachable through the VPS public IP.
+* **Solution**: Configure the [TLS reverse proxy](docs/reverse-proxy.md) and expose only HTTPS port `443`, or use an SSH tunnel temporarily. Do not open ports `8787`, `8788`, or `7928` publicly.
 
 #### 3. "API Domain Blocked" / Candidate nodes pool is empty (0 nodes)
 * **Reason**: The official VPNGate domain is blocked or DNS resolution failed on your VPS.

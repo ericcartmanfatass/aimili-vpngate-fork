@@ -2,15 +2,19 @@
 
 ## 默认监听地址
 
-Backend Web UI 和本地代理默认绑定到本机地址，避免直接对公网暴露。只有在明确设置 `LOCAL_PROXY_HOST="::"` 或类似公网监听地址时，代理才会对外开放。
+Backend Web UI、统一 Console 和本地代理默认绑定到 `127.0.0.1`，避免直接对公网暴露。Web 的 IPv6 绑定失败时只允许回退到 IPv4 loopback，不得回退到 `0.0.0.0`。
 
-如果必须开放公网访问，请至少配置防火墙或云安全组，只允许可信 IP 访问管理端口和代理端口。
+管理面不支持公网明文 HTTP。远程管理必须使用同机 Nginx/Caddy 等 TLS 反向代理，具体配置见 [`docs/reverse-proxy.md`](docs/reverse-proxy.md)。不要在防火墙或云安全组中开放 backend/Console upstream 端口。
+
+`X-Forwarded-*` 默认不受信任。只有显式启用 `AIMILIVPN_TRUST_PROXY_HEADERS=1` 且请求来自 `AIMILIVPN_TRUSTED_PROXY_ADDRESSES` 中的 loopback IP 时，`X-Forwarded-Proto: https` 才可使 Session Cookie 携带 `Secure`。非 loopback 的受信地址会被忽略。
 
 ## 登录凭据
 
 Web 和 Console 登录密码应以 PBKDF2 hash 存储，不应保存明文 `password` 字段。配置文件权限应限制为 `0600`。
 
 Session token 和随机密码由 Python `secrets` 生成。
+
+随机 secret path 只用于降低无关扫描噪声，不是认证或传输安全措施。普通启动日志不应输出完整 secret-path URL；管理员可在需要时通过 `ml web` 主动查询。
 
 ## OpenVPN 配置
 

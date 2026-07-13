@@ -37,11 +37,18 @@ from aimilivpn.web.routes import (
     handle_status_get,
     is_session_authorized,
     parse_cookie_header,
+    redact_secret_path,
     resolve_secret_path_request,
 )
 
 
 class AuthSessionHelperTests(unittest.TestCase):
+    def test_redact_secret_path_removes_secret_from_access_log_message(self) -> None:
+        message = redact_secret_path('"GET /private123/api/status HTTP/1.1" 200 -', "private123")
+
+        self.assertNotIn("private123", message)
+        self.assertIn("/<secret-path>/api/status", message)
+
     def test_parse_cookie_header_keeps_valid_pairs(self) -> None:
         cookies = parse_cookie_header("theme=dark; session=token-1; flag; spaced = value ")
 
@@ -99,6 +106,7 @@ class FakeHandler:
         payload: dict[str, object] | None = None,
         path: str = "",
         headers: dict[str, str] | None = None,
+        secure: bool = False,
     ) -> None:
         self.payload = payload or {}
         self.path = path
@@ -107,6 +115,10 @@ class FakeHandler:
         self.response_status: HTTPStatus | None = None
         self.response_headers: list[tuple[str, str]] = []
         self.wfile = io.BytesIO()
+        self.secure = secure
+
+    def is_secure_request(self) -> bool:
+        return self.secure
 
     def read_json_body(self, max_bytes: int = 65536) -> dict[str, object]:
         return dict(self.payload)
@@ -762,6 +774,19 @@ class WebRoutesTests(unittest.TestCase):
         self.assertEqual(len(cookies), 1)
         self.assertIn("session=token-1", cookies[0])
         self.assertIn("Path=/secret/", cookies[0])
+        self.assertIn("HttpOnly", cookies[0])
+        self.assertIn("SameSite=Lax", cookies[0])
+        self.assertIn("Max-Age=2592000", cookies[0])
+
+    def test_login_sets_secure_cookie_for_trusted_https_request(self) -> None:
+        context = build_auth_context({"username": "admin", "password_hash": "hash"})
+        handler = FakeHandler({"username": "admin", "password": "correct"}, secure=True)
+
+        self.assertTrue(handle_auth_post(handler, "/api/login", context))
+
+        cookies = [value for name, value in handler.response_headers if name == "Set-Cookie"]
+        self.assertEqual(len(cookies), 1)
+        self.assertIn("Secure", cookies[0])
 
     def test_login_rejects_invalid_credentials(self) -> None:
         context = build_auth_context({"username": "admin", "password_hash": "hash"})
@@ -787,7 +812,10 @@ class WebRoutesTests(unittest.TestCase):
         cookies = [value for name, value in handler.response_headers if name == "Set-Cookie"]
         self.assertEqual(len(cookies), 1)
         self.assertIn("session=;", cookies[0])
+        self.assertIn("HttpOnly", cookies[0])
+        self.assertIn("SameSite=Lax", cookies[0])
         self.assertIn("Max-Age=0", cookies[0])
+        self.assertIn("Expires=Thu, 01 Jan 1970 00:00:00 GMT", cookies[0])
 
     def test_proxy_check_updates_success_state(self) -> None:
         context = build_proxy_context({"ok": True, "ip": "198.51.100.1", "latency_ms": 42})

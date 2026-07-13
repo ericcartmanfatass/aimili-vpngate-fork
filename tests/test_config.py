@@ -62,7 +62,7 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.data_dir, root / "vpngate_data")
         self.assertEqual(config.local_proxy_host, "127.0.0.1")
-        self.assertEqual(config.ui_host, "::")
+        self.assertEqual(config.ui_host, "127.0.0.1")
         self.assertEqual(config.openvpn_cmd, "openvpn")
         self.assertEqual(config.local_proxy_port, 9000)
         self.assertTrue(config.allow_insecure_fetch)
@@ -81,6 +81,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.regions_file, root.resolve() / "vpngate_data" / "regions.json")
         self.assertEqual(config.quality_results_file, root.resolve() / "vpngate_data" / "quality_results.json")
         self.assertEqual(config.settings_file, root.resolve() / "vpngate_data" / "settings.json")
+        self.assertFalse(config.trust_proxy_headers)
+        self.assertEqual(config.trusted_proxy_addresses, ("127.0.0.1", "::1"))
 
 
 if __name__ == "__main__":

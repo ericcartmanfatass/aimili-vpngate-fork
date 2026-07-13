@@ -1,0 +1,61 @@
+# Testing and support baseline
+
+## Supported runtime
+
+- Production target: Linux.
+- Supported distributions in CI: Ubuntu 22.04 and Ubuntu 24.04.
+- Supported Python versions in CI: CPython 3.10 and 3.12.
+- Reference development version: CPython 3.12, recorded in `.python-version`.
+- The application and its baseline tests use only the Python standard library.
+
+Other Linux distributions handled by `install.sh` remain install targets, but the
+two Ubuntu LTS releases above are the repeatable CI contract. Windows is useful
+for source-level development only and is not a supported deployment target.
+
+## Local verification
+
+Run the same checks as CI from the repository root:
+
+```bash
+python -m compileall -q aimilivpn console_server.py proxy_server.py vpngate_manager.py vpn_utils.py tests
+bash -n install.sh
+python -m unittest discover -s tests -p 'test*.py'
+```
+
+Tests replace network, OpenVPN, process, and systemd interactions with fakes or
+mocks. A unit-test run must not require a live VPN, public network access,
+systemd, or root privileges.
+
+## Managed Windows sandbox note
+
+The managed Windows development sandbox may deny writes inside directories
+created by `tempfile.TemporaryDirectory()`, even when the parent directory is
+writable. On 2026-07-13 this produced exactly 113 `PermissionError` errors in a
+460-test run; the same revision passed all 460 tests outside that sandbox.
+
+Treat this signature as an environment limitation, not as a business regression:
+
+- errors are `PermissionError` or `WinError 5` under a temporary directory;
+- there are no failed assertions; and
+- the complete suite passes in Linux CI or in an unrestricted local environment.
+
+Do not weaken file-permission tests to accommodate this sandbox. Linux CI is the
+authoritative release signal.
+
+## Security regression map
+
+- Authentication primitives and migration: `tests/test_auth.py`,
+  `tests/test_console_modules.py`, and `tests/test_web_routes.py`.
+- Web request-body limits: `tests/test_http_utils.py`.
+- Web authorization and session cookies: `tests/test_web_server.py` and
+  `tests/test_web_routes.py`.
+- TLS proxy trust, loopback enforcement, and Console cookies:
+  `tests/test_proxy_trust.py`, `tests/test_console_routes.py`, and
+  `tests/test_console_server_wrapper.py`.
+- Console/Web listen defaults: `tests/test_console_modules.py`,
+  `tests/test_ui_config.py`, and the stage-specific tests added with network
+  hardening.
+- Installer and systemd static checks: `tests/test_install_script.py` plus
+  `bash -n install.sh` in CI.
+
+Network/session security changes must update these tests before their call sites.

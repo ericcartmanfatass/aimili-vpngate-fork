@@ -22,6 +22,8 @@ CONFIG_ATTRIBUTES = (
     "local_proxy_port",
     "ui_host",
     "ui_port",
+    "trust_proxy_headers",
+    "trusted_proxy_addresses",
     "invalid_backoff_seconds",
     "instance_id",
     "tun_dev",

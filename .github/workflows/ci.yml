@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-22.04", "ubuntu-24.04"]
+        python: ["3.10", "3.12"]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Compile Python entry points and package
+        run: >-
+          python -m compileall -q
+          aimilivpn
+          console_server.py
+          proxy_server.py
+          vpngate_manager.py
+          vpn_utils.py
+          tests
+
+      - name: Check installer shell syntax
+        run: bash -n install.sh
+
+      - name: Run zero-dependency test suite
+        run: python -m unittest discover -s tests -p 'test*.py'

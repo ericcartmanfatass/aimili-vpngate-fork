@@ -52,6 +52,8 @@ class ManagerWebRuntimeTests(unittest.TestCase):
             check_proxy_health=Mock(name="check_proxy_health"),
             ui_host=Mock(name="ui_host"),
             ui_port=Mock(name="ui_port"),
+            trust_proxy_headers=Mock(name="trust_proxy_headers"),
+            trusted_proxy_addresses=Mock(name="trusted_proxy_addresses"),
             proxy_host=Mock(name="proxy_host"),
             proxy_port=Mock(name="proxy_port"),
             active_openvpn_running=Mock(name="active_openvpn_running"),
@@ -96,6 +98,8 @@ class ManagerWebRuntimeTests(unittest.TestCase):
         self.assertIs(wiring.active_sessions, runtime.active_sessions)
         self.assertIs(wiring.lock, runtime.lock)
         self.assertEqual(wiring.scamalytics_errors, (RuntimeError,))
+        self.assertIs(wiring.trust_proxy_headers, runtime.trust_proxy_headers)
+        self.assertIs(wiring.trusted_proxy_addresses, runtime.trusted_proxy_addresses)
 
     def test_wrappers_delegate_to_cached_wiring(self) -> None:
         runtime = self.make_runtime()

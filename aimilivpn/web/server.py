@@ -9,6 +9,11 @@ from typing import Any, Callable, MutableMapping, cast
 
 from aimilivpn.web.context_factory import WebRouteContextFactory
 from aimilivpn.web.http_utils import HttpResponseMixin
+from aimilivpn.web.proxy_trust import (
+    DEFAULT_TRUSTED_PROXY_ADDRESSES,
+    management_http_notice,
+    request_uses_trusted_https,
+)
 from aimilivpn.web.routes import (
     handle_api_delete,
     handle_api_get,
@@ -16,6 +21,7 @@ from aimilivpn.web.routes import (
     handle_api_put,
     handle_page_get,
     is_session_authorized,
+    redact_secret_path,
     resolve_secret_path_request,
 )
 
@@ -28,6 +34,8 @@ class WebServerRuntime:
     session_lock: Any
     console_token: Callable[[], str]
     default_secret_path: str = "EJsW2EeBo9lY"
+    trust_proxy_headers: bool = False
+    trusted_proxy_addresses: tuple[str, ...] = DEFAULT_TRUSTED_PROXY_ADDRESSES
 
 
 class DualStackHTTPServer(ThreadingHTTPServer):
@@ -50,7 +58,7 @@ class DualStackHTTPServer(ThreadingHTTPServer):
         except OSError as exc:
             if self.address_family != socket.AF_INET6:
                 raise
-            fallback_host = "0.0.0.0" if host in ("::", "") else "127.0.0.1"
+            fallback_host = "127.0.0.1"
             print(
                 f"[警告] 绑定 Web 管理后台 IPv6 {host}:{port} 失败 ({exc})，正在尝试回退至 IPv4 {fallback_host} ...",
                 flush=True,
@@ -80,6 +88,13 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         expected = self.runtime.console_token()
         provided = self.headers.get("X-Aimili-Console-Token", "")
         return bool(expected) and provided == expected
+
+    def is_secure_request(self) -> bool:
+        return request_uses_trusted_https(
+            self,
+            trust_proxy_headers=self.runtime.trust_proxy_headers,
+            trusted_proxy_addresses=self.runtime.trusted_proxy_addresses,
+        )
 
     def get_secret_path(self) -> str:
         ui_cfg = self.runtime.load_ui_config()
@@ -114,7 +129,8 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
         return ""
 
     def log_message(self, format: str, *args: Any) -> None:
-        print(f"[{self.log_date_time_string()}] {format % args}", flush=True)
+        message = redact_secret_path(format % args, self.get_secret_path())
+        print(f"[{self.log_date_time_string()}] {message}", flush=True)
 
     def do_GET(self) -> None:
         effective_path = self.validate_path()
@@ -160,4 +176,13 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
 
 
 def serve_web_forever(host: str, port: int, runtime: WebServerRuntime) -> None:
+    print(
+        management_http_notice(
+            "Web UI",
+            host,
+            port,
+            trust_proxy_headers=runtime.trust_proxy_headers,
+        ),
+        flush=True,
+    )
     DualStackHTTPServer((host, port), WebRequestHandler, runtime).serve_forever()

@@ -5,6 +5,7 @@ from aimilivpn.web.auth_routes import (
     handle_auth_post,
     is_session_authorized,
     parse_cookie_header,
+    redact_secret_path,
     resolve_secret_path_request,
 )
 from aimilivpn.web.config_routes import handle_config_post
@@ -67,5 +68,6 @@ __all__ = [
     "handle_status_get",
     "is_session_authorized",
     "parse_cookie_header",
+    "redact_secret_path",
     "resolve_secret_path_request",
 ]

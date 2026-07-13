@@ -56,8 +56,10 @@ class ConsoleConfigTests(unittest.TestCase):
             self.assertEqual(reloaded.INSTALL_DIR, Path("/opt/aimilivpn"))
             self.assertEqual(reloaded.AUTH_FILE, Path("/etc/aimilivpn/console_auth.json"))
             self.assertEqual(reloaded.INSTANCES_FILE, Path("/etc/aimilivpn/instances.json"))
-            self.assertEqual(reloaded.CONSOLE_HOST, "0.0.0.0")
+            self.assertEqual(reloaded.CONSOLE_HOST, "127.0.0.1")
             self.assertEqual(reloaded.CONSOLE_PORT, 8788)
+            self.assertFalse(reloaded.TRUST_PROXY_HEADERS)
+            self.assertEqual(reloaded.TRUSTED_PROXY_ADDRESSES, ("127.0.0.1", "::1"))
         finally:
             importlib.reload(console_config)
 

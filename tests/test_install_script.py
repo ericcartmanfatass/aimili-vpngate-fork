@@ -31,7 +31,7 @@ class InstallScriptTests(unittest.TestCase):
     def test_local_source_sync_includes_package_directory(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
 
-        self.assertIn("for src_dir in aimilivpn tests; do", text)
+        self.assertIn("for src_dir in aimilivpn tests docs; do", text)
         self.assertIn('cp -a "${SCRIPT_DIR}/${src_dir}" "${INSTALL_DIR}/${src_dir}"', text)
 
     def test_console_service_uses_packaged_runtime(self) -> None:
@@ -99,6 +99,22 @@ class InstallScriptTests(unittest.TestCase):
         self.assertEqual(text.count("PrivateTmp=yes"), 2)
         self.assertNotIn("ProtectSystem=strict", text)
         self.assertNotIn("CapabilityBoundingSet=", text)
+
+    def test_management_interfaces_install_on_loopback_only(self) -> None:
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn('"host": "127.0.0.1"', text)
+        self.assertIn("UI_HOST=127.0.0.1", text)
+        self.assertNotIn('"host": "0.0.0.0"', text)
+        self.assertNotIn('"host": "::"', text)
+        self.assertNotIn("http://${PUBLIC_IP}:${CONSOLE_PORT}", text)
+        self.assertNotIn("http://${PUBLIC_IP}:${UI_PORT}", text)
+
+    def test_installer_points_remote_management_to_tls_proxy_docs(self) -> None:
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("docs/reverse-proxy.md", text)
+        self.assertIn("127.0.0.1:${CONSOLE_PORT}", text)
 
 
 if __name__ == "__main__":

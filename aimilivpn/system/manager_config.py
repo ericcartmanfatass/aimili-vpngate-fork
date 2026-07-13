@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from aimilivpn.system.runtime_paths import RuntimePaths, build_runtime_paths
+from aimilivpn.web.proxy_trust import parse_trusted_proxy_addresses
 
 
 def env_int(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
@@ -112,6 +113,8 @@ class ManagerRuntimeConfig:
     local_proxy_port: int
     ui_host: str
     ui_port: int
+    trust_proxy_headers: bool
+    trusted_proxy_addresses: tuple[str, ...]
     invalid_backoff_seconds: int
     instance_id: str
     tun_dev: str
@@ -183,8 +186,12 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
         openvpn_auth_pass=os.environ.get("OPENVPN_AUTH_PASS", "vpn"),
         local_proxy_host=env_text("LOCAL_PROXY_HOST", "127.0.0.1"),
         local_proxy_port=env_int("LOCAL_PROXY_PORT", 7928, 1, 65535),
-        ui_host=env_text("UI_HOST", "::"),
+        ui_host=env_text("UI_HOST", "127.0.0.1"),
         ui_port=env_int("UI_PORT", 8787, 1, 65535),
+        trust_proxy_headers=env_bool("AIMILIVPN_TRUST_PROXY_HEADERS"),
+        trusted_proxy_addresses=parse_trusted_proxy_addresses(
+            os.environ.get("AIMILIVPN_TRUSTED_PROXY_ADDRESSES")
+        ),
         invalid_backoff_seconds=env_int("INVALID_BACKOFF_SECONDS", 30 * 60, 1),
         instance_id=os.environ.get("INSTANCE_ID", "default").strip().lower() or "default",
         tun_dev=os.environ.get("TUN_DEV", "tun0").strip() or "tun0",

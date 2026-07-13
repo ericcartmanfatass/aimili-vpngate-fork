@@ -37,6 +37,24 @@ https://github.com/ericcartmanfatass/aimili-vpngate-fork
 
 启动时会尽量兼容旧配置并迁移到 `password_hash`。迁移后请确认 `ui_auth.json` 和 `/etc/aimilivpn/console_auth.json` 不再包含 `password` 明文字段。
 
+## 管理面监听与 TLS 迁移
+
+新安装的 Web UI 和 Console 默认监听 `127.0.0.1`。旧配置中显式保存的 `0.0.0.0` 或 `::` 会为了配置兼容继续保留，但启动时会输出高优先级明文公网监听警告。升级后应将下列文件中的 `host` 改为 `127.0.0.1`：
+
+```text
+/etc/aimilivpn/console_auth.json
+/opt/aimilivpn/vpngate_data/ui_auth.json  # 仅旧单实例安装
+```
+
+远程访问迁移为同机 TLS 反向代理，并在对应服务环境文件中显式启用本机代理信任：
+
+```ini
+AIMILIVPN_TRUST_PROXY_HEADERS=1
+AIMILIVPN_TRUSTED_PROXY_ADDRESSES=127.0.0.1,::1
+```
+
+完整的 Nginx/Caddy 示例及 SSH 应急访问方式见 [`docs/reverse-proxy.md`](docs/reverse-proxy.md)。确认 HTTPS 登录响应的 Session Cookie 包含 `Secure; HttpOnly; SameSite=Lax` 后，再从防火墙和云安全组中移除旧的 `8787`/`8788` 公网规则。
+
 ## 数据文件
 
 当前默认仍使用 JSON 存储:

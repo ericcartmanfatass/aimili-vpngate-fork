@@ -76,6 +76,8 @@ class ManagerConfigTests(unittest.TestCase):
             "LOCAL_PROXY_PORT": "8888",
             "UI_HOST": "127.0.0.1",
             "UI_PORT": "9999",
+            "AIMILIVPN_TRUST_PROXY_HEADERS": "true",
+            "AIMILIVPN_TRUSTED_PROXY_ADDRESSES": "127.0.0.1,::1,10.0.0.8",
             "INVALID_BACKOFF_SECONDS": "44",
             "INSTANCE_ID": " JP ",
             "TUN_DEV": "tun9",
@@ -103,6 +105,8 @@ class ManagerConfigTests(unittest.TestCase):
         self.assertEqual(config.local_proxy_port, 8888)
         self.assertEqual(config.ui_host, "127.0.0.1")
         self.assertEqual(config.ui_port, 9999)
+        self.assertTrue(config.trust_proxy_headers)
+        self.assertEqual(config.trusted_proxy_addresses, ("127.0.0.1", "::1"))
         self.assertEqual(config.instance_id, "jp")
         self.assertEqual(config.tun_dev, "tun9")
         self.assertEqual(config.policy_table, "109")
@@ -152,7 +156,7 @@ class ManagerConfigTests(unittest.TestCase):
 
         self.assertEqual(config.openvpn_cmd, "openvpn")
         self.assertEqual(config.local_proxy_host, "127.0.0.1")
-        self.assertEqual(config.ui_host, "::")
+        self.assertEqual(config.ui_host, "127.0.0.1")
 
     def test_env_int_and_bounded_int_apply_defaults(self) -> None:
         with patch.dict(os.environ, {"COUNT": "bad", "LOW": "0", "HIGH": "99", "BLANK": "   ", "PADDED": " 5 "}, clear=True):
