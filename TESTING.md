@@ -20,9 +20,10 @@ Run the same checks as CI from the repository root:
 
 ```bash
 python -m compileall -q aimilivpn console_server.py proxy_server.py vpngate_manager.py vpn_utils.py tests
-bash -n install.sh scripts/build-release.sh
+bash -n install.sh scripts/build-release.sh scripts/release-acceptance.sh
 python -m unittest discover -s tests -p 'test*.py'
 node --test tests/frontend_dom.test.js
+python scripts/release_migration_drill.py
 ```
 
 Tests replace network, OpenVPN, process, and systemd interactions with fakes or
@@ -89,3 +90,11 @@ authoritative release signal.
   `tests/test_static_assets.py`, and `tests/test_web_templates.py`.
 
 Network/session security changes must update these tests before their call sites.
+
+## Release acceptance
+
+On a clean Linux checkout, `bash scripts/release-acceptance.sh` runs the complete
+source gate and the legacy authentication/JSON migration and rollback drill.
+Source checks alone do not approve a release. The exact candidate must also pass
+the disposable Ubuntu host installation-through-uninstall exercise and manual
+security review in [`docs/release-acceptance.md`](docs/release-acceptance.md).

@@ -7,6 +7,11 @@ explicit immutable release tag or full commit. Verify the published SHA-256
 before running the local installer; never pipe a moving branch into a shell.
 See [`docs/installation.md`](docs/installation.md).
 
+Release candidates also require the Linux matrix, manual boundary review,
+migration/rollback drill, and disposable-host lifecycle evidence defined in
+[`docs/release-acceptance.md`](docs/release-acceptance.md). Missing evidence is
+a release blocker, not a warning that can be waived by a Windows test run.
+
 A fresh systemd install creates JP only. Additional countries can be created
 only when they appear with usable nodes in the latest server-side VPNGate
 country catalog and the request comes from an authenticated Console session.

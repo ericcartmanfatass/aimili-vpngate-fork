@@ -2,8 +2,9 @@
 
 AimiliVPN must be installed from the fixed repository and an immutable release
 tag or full commit. A fresh systemd installation creates and starts only the JP
-instance. KR and US remain absent until an authenticated administrator creates
-them through the Console lifecycle API.
+instance. Other countries remain absent until they appear with usable nodes in
+the latest VPNGate response and an authenticated administrator creates them
+through the Console lifecycle API.
 
 ## Verify before running
 

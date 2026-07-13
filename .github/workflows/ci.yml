@@ -43,10 +43,13 @@ jobs:
           tests
 
       - name: Check installer shell syntax
-        run: bash -n install.sh scripts/build-release.sh
+        run: bash -n install.sh scripts/build-release.sh scripts/release-acceptance.sh
 
       - name: Run zero-dependency test suite
         run: python -m unittest discover -s tests -p 'test*.py'
 
       - name: Run frontend DOM security tests
         run: node --test tests/frontend_dom.test.js
+
+      - name: Run legacy migration and rollback drill
+        run: python scripts/release_migration_drill.py

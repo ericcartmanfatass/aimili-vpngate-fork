@@ -23,10 +23,12 @@ AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN
 
 在您的 Linux VPS 上以 root 用户执行以下对应命令：
 
-#### 🌟 正式稳定版本 (main 分支)
+#### 🌟 正式稳定版本（固定 Tag）
 Download a pinned release, verify its checksum, and then run `install.sh`
 locally. See [Verified installation and lifecycle operations](docs/installation.md).
 Do not pipe an installer from a moving branch directly into a shell.
+发布维护者还必须完成 [发布验收清单](docs/release-acceptance.md)，包括 Linux
+CI、迁移/回滚演练和全新 Ubuntu 主机的安装至卸载验证。
 > 💡 **安全提示**：管理网页默认只监听 `127.0.0.1`，安装日志不会输出完整安全路径。远程访问请先按 [TLS 反向代理指南](docs/reverse-proxy.md) 配置 Nginx/Caddy，再使用 `ml web` 主动查询入口。随机路径只能降低扫描噪声，不能替代密码和 HTTPS。
 
 ---
@@ -84,6 +86,9 @@ Do not pipe an installer from a moving branch directly into a shell.
   - 支持自定义地区规则，并可按地区筛选节点。
   - 节点质量结果会记录延迟、OpenVPN 检测状态、风险信息和最近检查时间。
   - 如配置 Scamalytics 账号，风险检测只在服务端执行，API key 不会下发到前端。
+* **动态国家实例**：
+  - 全新安装只启动 JP；VPNGate 首次刷新后，Console 会列出返回文件中当前有可用节点的其他国家。
+  - 创建实例时由后端分配并持久化 TUN、策略路由表和端口，浏览器不能自行指定系统资源。
 
 ---
 
@@ -139,10 +144,12 @@ Linux is the supported runtime target. CPython 3.10 is the minimum supported ver
 
 Run the corresponding command on your Linux VPS as root:
 
-#### 🌟 Stable Release (main branch)
+#### 🌟 Stable Release (immutable tag)
 Download a pinned release, verify its checksum, and then run `install.sh`
 locally. See [Verified installation and lifecycle operations](docs/installation.md).
 Do not pipe an installer from a moving branch directly into a shell.
+Release maintainers must also complete the [release acceptance checklist](docs/release-acceptance.md),
+including Linux CI, migration/rollback, and a clean Ubuntu install-through-uninstall drill.
 
 > 💡 **Security note**: Management services bind to `127.0.0.1`, and install logs do not print the complete secret-path URL. Configure the [TLS reverse proxy](docs/reverse-proxy.md), then run `ml web` when you need the entry URL. The random path is scan-noise reduction, not authentication or encryption.
 
@@ -157,6 +164,12 @@ Configure the [TLS reverse proxy](docs/reverse-proxy.md), then run `ml web` to r
 1. Wait for the program to complete its first automatic node speed benchmarks.
 2. Under "Admin", you can trigger node fetching. The backend concurrently tests official VPNGate nodes and ranks them by latency.
 3. Switch routes mode (Smart Auto, Specific Region, or Specific Server Node) according to your needs.
+
+#### Managed country instances
+
+A fresh install starts JP only. After VPNGate refreshes, the authenticated
+Console lists other countries that currently have usable nodes. The backend—not
+the browser—allocates and persists every TUN device, policy table, and port.
 
 #### Step 3: Use Localhost Proxy (Core Step)
 To prevent unauthorized scanning and abuse of the proxy port on the public internet, the built-in HTTP/SOCKS5 proxy server (default port **`7928`**) **binds to localhost (`127.0.0.1`) by default**. It is designed to route traffic generated locally on the VPS, rather than acting as a public proxy server.

@@ -18,8 +18,9 @@ class CiBaselineTests(unittest.TestCase):
             'os: ["ubuntu-22.04", "ubuntu-24.04"]',
             'python: ["3.10", "3.12"]',
             "python -m compileall -q",
-            "bash -n install.sh scripts/build-release.sh",
+            "bash -n install.sh scripts/build-release.sh scripts/release-acceptance.sh",
             "python -m unittest discover -s tests -p 'test*.py'",
+            "python scripts/release_migration_drill.py",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, workflow)
@@ -30,6 +31,13 @@ class CiBaselineTests(unittest.TestCase):
         self.assertIn("must not require a live VPN", text)
         self.assertIn("113 `PermissionError`", text)
         self.assertIn("Linux CI is the", text)
+
+    def test_release_acceptance_requires_external_linux_evidence(self) -> None:
+        text = (ROOT / "docs" / "release-acceptance.md").read_text(encoding="utf-8")
+
+        self.assertIn("Missing, partial, or locally simulated evidence is a release blocker", text)
+        self.assertIn("Disposable Ubuntu host lifecycle", text)
+        self.assertIn("Secure; HttpOnly;", text)
 
 
 if __name__ == "__main__":
