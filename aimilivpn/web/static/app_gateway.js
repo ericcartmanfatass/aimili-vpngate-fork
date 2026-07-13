@@ -18,7 +18,7 @@ function closeGatewayModal() {
 
 async function loadGatewayStatus() {
   try {
-    const res = await fetch("./api/gateway_status");
+    const res = await fetch("./api/v1/status");
     const data = await res.json();
     if (data.ok && data.services) {
       renderGatewayServices(data.services);

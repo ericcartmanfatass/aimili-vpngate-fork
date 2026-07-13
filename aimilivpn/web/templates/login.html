@@ -193,7 +193,7 @@
       <h2 class="login-title">AimiliVPN</h2>
       <p class="login-subtitle">请输入您的管理账号和安全密码以继续</p>
       
-      <form id="login_form" onsubmit="handleLogin(event)">
+      <form id="login_form">
         <div class="form-group">
           <label class="form-label" for="username">管理账号</label>
           <div class="input-wrapper">
@@ -250,6 +250,7 @@
         submitBtn.querySelector("span").textContent = "登录";
       }
     }
+    document.getElementById("login_form").addEventListener("submit", handleLogin);
   </script>
 </body>
 </html>

@@ -58,8 +58,8 @@ async function toggleFavRouting() {
   updateFavPanelUI();
   
   try {
-    const res = await fetch("./api/update_routing", {
-      method: "POST",
+    const res = await fetch("./api/v1/settings/routing", {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         routing_mode: newMode,
@@ -92,8 +92,8 @@ async function handleFavFallbackChange(checked) {
   updateFavPanelUI();
   
   try {
-    const res = await fetch("./api/update_routing", {
-      method: "POST",
+    const res = await fetch("./api/v1/settings/routing", {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         routing_mode: state.routing_mode || "auto",

@@ -2,8 +2,8 @@
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AimiliVPN Console</title>
 <link rel="stylesheet" href="./static/console.css"></head><body>
-<header><h1>AimiliVPN Console</h1><button onclick="logout()">Logout</button></header>
-<div class="wrap"><aside><div class="inst" id="instances"></div></aside><main>
-<div class="tabs"><button class="tab active" id="tabOverview" onclick="showOverview()">Overview</button><span id="instanceTabs"></span></div>
-<section id="content"></section></main></div>
+<header><h1>AimiliVPN Console</h1><div class="header-actions"><span id="operationStatus" class="operation-status">Loading...</span><button type="button" data-console-action="logout">Logout</button></div></header>
+<div class="wrap"><aside><div class="inst" id="instances"></div><div class="card instance-manager" id="instanceManager"></div></aside><main>
+<div class="tabs"><button type="button" class="tab active" id="tabOverview" data-console-action="overview">Overview</button><span id="instanceTabs"></span></div>
+<section id="content" aria-live="polite"></section></main></div>
 <script src="./static/console.js"></script></body></html>

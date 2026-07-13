@@ -4,21 +4,21 @@ const githubBtn = $("github_btn");
 const githubDropdown = $("github_dropdown");
 
 if (adminBtn && adminDropdown) {
-  adminBtn.onclick = (e) => {
+  adminBtn.addEventListener("click", e => {
     e.stopPropagation();
     const isShow = adminDropdown.style.display === "block";
     adminDropdown.style.display = isShow ? "none" : "block";
     if (githubDropdown) githubDropdown.style.display = "none";
-  };
+  });
 }
 
 if (githubBtn && githubDropdown) {
-  githubBtn.onclick = (e) => {
+  githubBtn.addEventListener("click", e => {
     e.stopPropagation();
     const isShow = githubDropdown.style.display === "block";
     githubDropdown.style.display = isShow ? "none" : "block";
     if (adminDropdown) adminDropdown.style.display = "none";
-  };
+  });
 }
 
 document.addEventListener("click", () => {

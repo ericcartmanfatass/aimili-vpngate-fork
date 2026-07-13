@@ -1,41 +1,71 @@
-let nodes=[], state={}, regions=[], testingNodeIds = new Set(), checkingRegionIds = new Set();
+let nodes = [];
+let state = {};
+let regions = [];
+let testingNodeIds = new Set();
+let checkingRegionIds = new Set();
+let selectedNodeIds = new Set();
 let currentPage = 1;
-const pageSize = 99999;
+const pageSize = 50;
+let nodePagination = { limit: pageSize, offset: 0, returned: 0, total: 0 };
 let currentPageNodes = [];
 let selectedRegionId = "";
 let currentQualityModalNodeId = "";
+const knownCountries = new Map();
 
 function updateCountryFilter() {
   const select = $("country_filter");
   const selectedValue = select.value;
-  const countries = Array.from(new Set(nodes.map(n => n ? translateCountry(n.country) : "").filter(Boolean))).sort();
-  
-  const currentOptions = Array.from(select.options).map(o => o.value).filter(Boolean);
-  if (JSON.stringify(countries) === JSON.stringify(currentOptions)) {
-    return;
+  for (const node of nodes) {
+    if (!node) continue;
+    const code = String(node.country_short || "").toUpperCase();
+    if (code) knownCountries.set(code, translateCountry(node.country || code));
   }
-  
-  select.innerHTML = '<option value="">所有国家</option>' + 
-    countries.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
-  
-  if (countries.includes(selectedValue)) {
-    select.value = selectedValue;
-  } else {
-    select.value = "";
-  }
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "所有国家";
+  const options = [...knownCountries.entries()]
+    .sort((left, right) => left[1].localeCompare(right[1]))
+    .map(([code, name]) => {
+      const option = document.createElement("option");
+      option.value = code;
+      option.textContent = `${name} (${code})`;
+      return option;
+    });
+  select.replaceChildren(all, ...options);
+  select.value = knownCountries.has(selectedValue) ? selectedValue : "";
 }
 
 function nodesApiUrl() {
-  const query = selectedRegionId ? `?region=${encodeURIComponent(selectedRegionId)}` : "";
-  return `./api/nodes${query}`;
+  const params = new URLSearchParams({
+    limit: String(pageSize),
+    offset: String((currentPage - 1) * pageSize),
+    sort: "quality",
+    order: "desc",
+  });
+  const country = $("country_filter").value;
+  const status = $("status_filter").value;
+  const ipType = $("ip_type_filter").value;
+  if (selectedRegionId) params.set("region", selectedRegionId);
+  if (country) params.set("country", country);
+  if (status && status !== "all") params.set("status", status);
+  if (ipType) params.set("ip_type", ipType);
+  return `./api/v1/nodes?${params.toString()}`;
 }
 
 function updateRegionFilter() {
   const select = $("region_filter");
   if (!select) return;
   const current = selectedRegionId || select.value;
-  select.innerHTML = '<option value="">所有地区</option>' +
-    regions.map(region => `<option value="${esc(region.id)}">${esc(region.name)} (${esc((region.country_codes || []).join(","))})</option>`).join("");
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "所有地区";
+  const options = regions.map(region => {
+    const option = document.createElement("option");
+    option.value = String(region.id || "");
+    option.textContent = `${region.name || "-"} (${(region.country_codes || []).join(",")})`;
+    return option;
+  });
+  select.replaceChildren(all, ...options);
   if (regions.some(region => region.id === current)) {
     select.value = current;
     selectedRegionId = current;
@@ -47,10 +77,10 @@ function updateRegionFilter() {
 
 async function loadRegions() {
   try {
-    const response = await fetch("./api/regions");
+    const response = await fetch("./api/v1/regions?limit=100&sort=name&order=asc");
     const data = await response.json();
-    regions = Array.isArray(data.regions) ? data.regions : [];
-  } catch (e) {
+    regions = response.ok && Array.isArray(data.regions) ? data.regions : [];
+  } catch (error) {
     regions = [];
   }
   updateRegionFilter();
@@ -58,62 +88,44 @@ async function loadRegions() {
 }
 
 function getFilteredNodes() {
-  const selectedCountry = $("country_filter").value;
-  const selectedIpType = $("ip_type_filter").value;
-  const selectedStatus = $("status_filter").value;
-  return nodes.filter(n => {
-    if (!n) return false;
-    if (selectedCountry && translateCountry(n.country) !== selectedCountry) {
-      return false;
-    }
-    if (selectedIpType) {
-      if (selectedIpType === "residential" && !["residential", "mobile"].includes(n.ip_type)) {
-        return false;
-      }
-      if (selectedIpType === "hosting" && n.ip_type !== "hosting") {
-        return false;
-      }
-    }
-    if (selectedStatus === "available" && n.probe_status !== "available" && !n.active) {
-      return false;
-    }
-    if (selectedStatus === "unavailable" && (n.probe_status !== "unavailable" || n.active)) {
-      return false;
-    }
-    const favoriteIds = Array.isArray(state.favorite_node_ids) ? state.favorite_node_ids : [];
-    if (showFavoritesOnly && !favoriteIds.includes(n.id)) {
-      return false;
-    }
-    return true;
-  });
+  const favoriteIds = Array.isArray(state.favorite_node_ids) ? state.favorite_node_ids : [];
+  return nodes.filter(node => node && (!showFavoritesOnly || favoriteIds.includes(node.id)));
 }
 
 function stableSortNodes() {
-  nodes.sort((a, b) => {
-    if (!a || !b) return 0;
-    const aScore = a.score || 0;
-    const bScore = b.score || 0;
-    if (bScore !== aScore) {
-      return bScore - aScore;
-    }
-    const aId = a.id || "";
-    const bId = b.id || "";
-    return aId.localeCompare(bId);
+  nodes.sort((left, right) => {
+    if (!left || !right) return 0;
+    const scoreDifference = Number(right.quality_score || right.score || 0) - Number(left.quality_score || left.score || 0);
+    return scoreDifference || String(left.id || "").localeCompare(String(right.id || ""));
   });
 }
 
-async function load(){
-  await loadRegions();
-  const r=await fetch(nodesApiUrl()); 
-  const d=await r.json(); 
-  nodes=Array.isArray(d.nodes) ? d.nodes : []; 
-  state=d.state||{}; 
-  
-  stableSortNodes();
-  updateCountryFilter();
-  render();
+function setDashboardMessage(message, kind = "") {
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = 8;
+  cell.className = `table-state ${kind}`.trim();
+  cell.textContent = message;
+  row.append(cell);
+  $("rows").replaceChildren(row);
+}
 
-  if (state.is_connecting) {
-    startConnectionPolling();
+async function load() {
+  setDashboardMessage("正在加载节点与状态...", "loading");
+  try {
+    await loadRegions();
+    const response = await fetch(nodesApiUrl());
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "节点加载失败");
+    nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    state = data.state || {};
+    nodePagination = data.pagination || { limit: pageSize, offset: 0, returned: nodes.length, total: nodes.length };
+    stableSortNodes();
+    updateCountryFilter();
+    render();
+    if (state.is_connecting) startConnectionPolling();
+  } catch (error) {
+    setDashboardMessage(error.message || "节点加载失败，请稍后重试。", "error");
+    throw error;
   }
 }

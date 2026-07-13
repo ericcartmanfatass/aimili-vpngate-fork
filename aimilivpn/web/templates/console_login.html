@@ -8,10 +8,11 @@ h1{font-size:22px;margin:0 0 18px}label{display:block;font-size:13px;color:#aab4
 input,button{box-sizing:border-box;width:100%;height:42px;border-radius:6px}input{background:#0f141b;border:1px solid #334155;color:#fff;padding:0 12px}
 button{margin-top:18px;border:0;background:#2f8cff;color:#fff;font-weight:700;cursor:pointer}.err{color:#ff7b7b;min-height:20px;font-size:13px}
 </style></head><body>
-<form onsubmit="login(event)"><h1>AimiliVPN Console</h1><div class="err" id="err"></div>
-<label>Username</label><input id="u" autocomplete="username" required>
-<label>Password</label><input id="p" type="password" autocomplete="current-password" required>
+<form id="consoleLoginForm"><h1>AimiliVPN Console</h1><div class="err" id="err"></div>
+<label for="u">Username</label><input id="u" autocomplete="username" required>
+<label for="p">Password</label><input id="p" type="password" autocomplete="current-password" required>
 <button>Login</button></form>
 <script>
-async function login(e){e.preventDefault();err.textContent='';const r=await fetch('./api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.value,password:p.value})});if(r.ok){location.reload()}else{err.textContent='Login failed'}}
+async function login(event){event.preventDefault();const error=document.getElementById('err');error.textContent='';const response=await fetch('./api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});if(response.ok){location.reload()}else{error.textContent='Login failed'}}
+document.getElementById('consoleLoginForm').addEventListener('submit',login);
 </script></body></html>

@@ -27,7 +27,7 @@ async function saveRegion(event) {
   submitBtn.disabled = true;
   submitBtn.textContent = "保存中...";
   try {
-    const response = await fetch(editingId ? `./api/regions/${encodeURIComponent(editingId)}` : "./api/regions", {
+    const response = await fetch(editingId ? `./api/v1/regions/${encodeURIComponent(editingId)}` : "./api/v1/regions", {
       method: editingId ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -53,7 +53,7 @@ async function saveRegion(event) {
 async function deleteRegion(id) {
   if (!confirm("确定删除这个地区配置吗？")) return;
   try {
-    const response = await fetch(`./api/regions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await fetch(`./api/v1/regions/${encodeURIComponent(id)}`, { method: "DELETE" });
     const data = await response.json();
     if (!response.ok || !data.ok) {
       setRegionsMessage("error", data.error || "删除地区失败");
@@ -75,7 +75,7 @@ async function previewRegion(id) {
   const previewBox = $("regions_preview");
   previewBox.innerHTML = `<div class="message-box">正在预览匹配节点...</div>`;
   try {
-    const response = await fetch(`./api/regions/${encodeURIComponent(id)}/preview`, { method: "POST" });
+    const response = await fetch(`./api/v1/regions/${encodeURIComponent(id)}/preview`, { method: "POST" });
     const data = await response.json();
     if (!response.ok || !data.ok || !data.preview) {
       previewBox.innerHTML = `<div class="message-box error">${esc(data.error || "预览失败")}</div>`;
@@ -106,7 +106,7 @@ async function checkRegionQuality(id) {
     previewBox.innerHTML = `<div class="message-box">Checking region nodes, up to 20 at a time...</div>`;
   }
   try {
-    const response = await fetch("./api/quality/check-region", {
+    const response = await fetch("./api/v1/quality-checks/region", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ region_id: id, limit: 20 })

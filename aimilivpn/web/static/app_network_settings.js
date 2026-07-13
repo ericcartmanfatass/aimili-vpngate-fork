@@ -58,8 +58,8 @@ async function saveNetwork(e) {
   submitBtn.textContent = "正在保存...";
   
   try {
-    const res = await fetch("./api/update_settings", {
-      method: "POST",
+    const res = await fetch("./api/v1/settings", {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         proxy_port: proxyPort,

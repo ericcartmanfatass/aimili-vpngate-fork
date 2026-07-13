@@ -590,6 +590,11 @@ tr:hover {
   gap: 6px;
   border: 1px solid transparent;
 }
+.modal-close-btn:hover { background: rgba(255,255,255,0.05) !important; }
+.log-empty-state { color: var(--text-secondary); text-align: center; margin-top: 150px; }
+.log-line { margin-bottom: 4px; }
+.table-state { text-align: center; color: var(--text-secondary); padding: 40px 12px; }
+.table-state.error { color: var(--danger); }
 
 .quality-badge {
   cursor: pointer;

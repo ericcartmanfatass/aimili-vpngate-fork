@@ -27,6 +27,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      - name: Set up Node.js for DOM security tests
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
       - name: Compile Python entry points and package
         run: >-
           python -m compileall -q
@@ -42,3 +47,6 @@ jobs:
 
       - name: Run zero-dependency test suite
         run: python -m unittest discover -s tests -p 'test*.py'
+
+      - name: Run frontend DOM security tests
+        run: node --test tests/frontend_dom.test.js

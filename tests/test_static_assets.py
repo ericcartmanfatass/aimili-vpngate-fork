@@ -143,6 +143,12 @@ class StaticAssetsTests(unittest.TestCase):
         self.assertIsNotNone(js)
         self.assertIn(b"setInterval", js or b"")
 
+    def test_default_static_app_events_js_exists(self) -> None:
+        js = get_static_asset("app_events.js")
+
+        self.assertIsNotNone(js)
+        self.assertIn(b"addEventListener", js or b"")
+
     def test_default_console_static_assets_exist(self) -> None:
         css = get_static_asset("console.css")
         js = get_static_asset("console.js")

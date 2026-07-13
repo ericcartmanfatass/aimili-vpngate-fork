@@ -39,11 +39,11 @@ function renderRegionsList() {
         </div>
         <div class="region-codes">${codes}</div>
         <div class="region-actions">
-          <button type="button" class="test-btn" onclick="checkRegionQuality('${esc(region.id)}')" ${isChecking ? "disabled" : ""}>${isChecking ? "Checking..." : "Check"}</button>
-          <button type="button" class="test-btn" onclick="editRegion('${esc(region.id)}')">编辑</button>
-          <button type="button" class="test-btn" onclick="previewRegion('${esc(region.id)}')">预览</button>
-          <button type="button" class="connect-btn" onclick="selectRegionFromModal('${esc(region.id)}')">筛选</button>
-          <button type="button" class="test-btn" style="color: var(--danger); border-color: rgba(244, 63, 94, 0.35);" onclick="deleteRegion('${esc(region.id)}')">删除</button>
+          <button type="button" class="test-btn" data-action="check-region" data-region-id="${esc(region.id)}" ${isChecking ? "disabled" : ""}>${isChecking ? "Checking..." : "Check"}</button>
+          <button type="button" class="test-btn" data-action="edit-region" data-region-id="${esc(region.id)}">编辑</button>
+          <button type="button" class="test-btn" data-action="preview-region" data-region-id="${esc(region.id)}">预览</button>
+          <button type="button" class="connect-btn" data-action="select-region" data-region-id="${esc(region.id)}">筛选</button>
+          <button type="button" class="test-btn" data-action="delete-region" data-region-id="${esc(region.id)}" style="color: var(--danger); border-color: rgba(244, 63, 94, 0.35);">删除</button>
         </div>
       </div>
     `;

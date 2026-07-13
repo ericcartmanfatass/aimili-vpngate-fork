@@ -1,72 +1,54 @@
 function renderNodeRows(activeNode, shown) {
-  // Pagination calculation
-  const totalPages = Math.ceil(shown.length / pageSize) || 1;
+  const total = showFavoritesOnly ? shown.length : Number(nodePagination.total || shown.length);
+  const offset = showFavoritesOnly ? 0 : Number(nodePagination.offset || 0);
+  const limit = Number(nodePagination.limit || pageSize);
+  const totalPages = Math.ceil(total / limit) || 1;
   if (currentPage > totalPages) currentPage = totalPages;
-  if (currentPage < 1) currentPage = 1;
-  
-  const startIndex = (currentPage - 1) * pageSize;
-  const endIndex = Math.min(startIndex + pageSize, shown.length);
-  currentPageNodes = shown.slice(startIndex, endIndex);
+  currentPageNodes = shown;
 
-  // Render table rows
-  if (currentPageNodes.length === 0) {
-    $("rows").innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 40px 0;">未找到符合过滤条件的备选节点。</td></tr>`;
+  if (!shown.length) {
+    setDashboardMessage("未找到符合过滤条件的备选节点。", "empty");
   } else {
-    $("rows").innerHTML=currentPageNodes.map(n=>{
-      if (!n) return '';
-      const isCurrentlyActive = activeNode && n.id === activeNode.id;
-      const rowClass = isCurrentlyActive ? 'class="active-row"' : '';
-      
-      const badgeClass = isCurrentlyActive ? 'available' : (n.probe_status || 'not_checked');
-      const badgeText = isCurrentlyActive ? '<span class="badge-pulse"></span>已连接' : translateStatus(n.probe_status);
-      const latencyClass = getLatencyClass(n.latency_ms);
-      const latencyText = n.latency_ms ? `<span class="latency-val ${latencyClass}">${n.latency_ms} ms</span>` : "-";
-      const displayLocation = n.location || translateCountry(n.country) || "-";
-      
-      const isTesting = testingNodeIds.has(n.id);
-      const testSpinner = `<svg style="animation: spin 1s linear infinite; width: 12px; height: 12px; display: inline-block; margin-right: 4px; vertical-align: middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.2" fill="none"></circle><path d="M4 12a8 8 0 018-8" stroke="currentColor" fill="none"></path></svg>`;
-      const testBtnText = isTesting ? `${testSpinner}检测中` : '检测';
-      const testBtn = `<button class="test-btn" data-node-id="${esc(n.id)}" ${isTesting ? 'disabled' : ''} onclick="testNode(this, '${esc(n.id)}', event)">${testBtnText}</button>`;
-      
-      // Connect button is disabled if probe status is "unavailable" and not already active, or if we are already connecting
-      // Connect button is disabled if probe status is "unavailable" and not already active, or if we are already connecting
-      const isUnavailable = n.probe_status === "unavailable";
-      const connectBtn = isCurrentlyActive 
-        ? `<button class="connect-btn" disabled style="background: var(--success-gradient); color: white; cursor: default; opacity: 1;">已连接</button>`
-        : `<button class="connect-btn" ${(isUnavailable || state.is_connecting) ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} onclick="connectNode('${esc(n.id)}')">切换</button>`;
-      
-      const favoriteIds = Array.isArray(state.favorite_node_ids) ? state.favorite_node_ids : [];
-      const isFav = favoriteIds.includes(n.id);
-      const favBtn = isFav 
-        ? `<button class="test-btn" style="color: var(--warning); border-color: rgba(245, 158, 11, 0.4); padding: 0 8px; height: 30px;" onclick="toggleFavorite('${esc(n.id)}', event)">★ 已收藏</button>`
-        : `<button class="test-btn" style="color: var(--text-secondary); border-color: var(--border-color); padding: 0 8px; height: 30px;" onclick="toggleFavorite('${esc(n.id)}', event)">☆ 收藏</button>`;
-
-      return `<tr ${rowClass}>
+    const rows = shown.map(node => {
+      const isActive = Boolean(activeNode && node.id === activeNode.id);
+      const allowedStatuses = ["available", "unavailable", "not_checked"];
+      const badgeClass = isActive ? "available" : (allowedStatuses.includes(node.probe_status) ? node.probe_status : "not_checked");
+      const badgeText = isActive ? '<span class="badge-pulse"></span>已连接' : esc(translateStatus(node.probe_status));
+      const location = node.location || translateCountry(node.country) || "-";
+      const remotePort = Number.isInteger(Number(node.remote_port)) ? Number(node.remote_port) : "";
+      const isUnavailable = node.probe_status === "unavailable";
+      const isFavorite = Array.isArray(state.favorite_node_ids) && state.favorite_node_ids.includes(node.id);
+      const selected = selectedNodeIds.has(node.id) ? "checked" : "";
+      const favoriteButton = `<button class="test-btn" data-action="toggle-favorite" data-node-id="${esc(node.id)}" style="color: ${isFavorite ? "var(--warning)" : "var(--text-secondary)"}; padding: 0 8px; height: 30px;">${isFavorite ? "★ 已收藏" : "☆ 收藏"}</button>`;
+      const connectButton = isActive
+        ? '<button class="connect-btn" disabled>已连接</button>'
+        : `<button class="connect-btn" data-action="connect-node" data-node-id="${esc(node.id)}" ${(isUnavailable || state.is_connecting) ? "disabled" : ""}>切换</button>`;
+      return `<tr class="${isActive ? "active-row" : ""}">
+        <td><input type="checkbox" data-node-select data-node-id="${esc(node.id)}" ${selected} aria-label="选择节点 ${esc(node.id)}"></td>
         <td><span class="badge ${badgeClass}">${badgeText}</span></td>
-        <td class="mono" style="white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;" title="${esc(n.ip||n.remote_host)}:${n.remote_port||""}">${esc(n.ip||n.remote_host)}:${n.remote_port||""}</td>
-        <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${esc(displayLocation)}">${esc(displayLocation)}</td>
-        <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${esc(n.owner||n.as_name||"-")}">${esc(n.owner||n.as_name||"-")}</td>
-        <td style="white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis;" title="${esc(translateIpType(n.ip_type))}">${esc(translateIpType(n.ip_type))}</td>
-        <td style="white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis;">${qualityBadgeHtml(n)}</td>
-        <td>
-          <div class="table-actions">
-            ${favBtn}
-            ${connectBtn}
-          </div>
-        </td>
+        <td class="mono" title="${esc(node.ip || node.remote_host)}:${remotePort}">${esc(node.ip || node.remote_host)}:${remotePort}</td>
+        <td title="${esc(location)}">${esc(location)}</td>
+        <td title="${esc(node.owner || node.as_name || "-")}">${esc(node.owner || node.as_name || "-")}</td>
+        <td title="${esc(translateIpType(node.ip_type))}">${esc(translateIpType(node.ip_type))}</td>
+        <td>${qualityBadgeHtml(node)}</td>
+        <td><div class="table-actions">${favoriteButton}${connectButton}</div></td>
       </tr>`;
-    }).join("");
+    });
+    $("rows").innerHTML = rows.join("");
   }
 
-  // Render pagination controls
-  $("page_start").textContent = shown.length > 0 ? startIndex + 1 : 0;
-  $("page_end").textContent = endIndex;
-  $("filtered_count").textContent = shown.length;
-  $("current_page_val").textContent = currentPage;
-  $("total_pages_val").textContent = totalPages;
-  
+  const start = total ? offset + 1 : 0;
+  const end = Math.min(offset + shown.length, total);
+  $("page_start").textContent = String(start);
+  $("page_end").textContent = String(end);
+  $("filtered_count").textContent = String(total);
+  $("current_page_val").textContent = String(currentPage);
+  $("total_pages_val").textContent = String(totalPages);
   $("btn_first_page").disabled = currentPage === 1;
   $("btn_prev_page").disabled = currentPage === 1;
-  $("btn_next_page").disabled = currentPage === totalPages;
-  $("btn_last_page").disabled = currentPage === totalPages;
+  $("btn_next_page").disabled = currentPage >= totalPages;
+  $("btn_last_page").disabled = currentPage >= totalPages;
+  $("btn_test_selected").disabled = selectedNodeIds.size === 0;
+  $("selected_node_count").textContent = String(selectedNodeIds.size);
+  $("select_all_nodes").checked = shown.length > 0 && shown.every(node => selectedNodeIds.has(node.id));
 }

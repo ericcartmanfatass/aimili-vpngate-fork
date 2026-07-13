@@ -5,8 +5,10 @@
 - Production target: Linux.
 - Supported distributions in CI: Ubuntu 22.04 and Ubuntu 24.04.
 - Supported Python versions in CI: CPython 3.10 and 3.12.
+- Frontend security test runtime in CI: Node.js 22.
 - Reference development version: CPython 3.12, recorded in `.python-version`.
-- The application and its baseline tests use only the Python standard library.
+- The application uses the Python standard library; frontend DOM security tests
+  use only Node.js built-ins and install no npm dependencies.
 
 Other Linux distributions handled by `install.sh` remain install targets, but the
 two Ubuntu LTS releases above are the repeatable CI contract. Windows is useful
@@ -20,6 +22,7 @@ Run the same checks as CI from the repository root:
 python -m compileall -q aimilivpn console_server.py proxy_server.py vpngate_manager.py vpn_utils.py tests
 bash -n install.sh scripts/build-release.sh
 python -m unittest discover -s tests -p 'test*.py'
+node --test tests/frontend_dom.test.js
 ```
 
 Tests replace network, OpenVPN, process, and systemd interactions with fakes or
@@ -79,5 +82,9 @@ authoritative release signal.
   rollback, resource conflicts, data retention, and sysctl restoration:
   `tests/test_install_script.py`, `tests/test_instance_lifecycle.py`,
   `tests/test_console_routes.py`, and `tests/test_cli_parser.py`.
+- Frontend inline-event removal, safe DOM rendering for hostile node/status/log/
+  instance metadata, versioned API pagination, and controlled Console lifecycle
+  calls: `tests/test_frontend_security.py`, `tests/frontend_dom.test.js`,
+  `tests/test_static_assets.py`, and `tests/test_web_templates.py`.
 
 Network/session security changes must update these tests before their call sites.

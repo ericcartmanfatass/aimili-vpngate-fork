@@ -1,17 +1,22 @@
 // Hook up page buttons events
-$("btn_first_page").onclick = () => { currentPage = 1; render(); };
-$("btn_prev_page").onclick = () => { if (currentPage > 1) { currentPage--; render(); } };
-$("btn_next_page").onclick = () => {
-  const shown = getFilteredNodes();
-  const totalPages = Math.ceil(shown.length / pageSize) || 1;
-  if (currentPage < totalPages) { currentPage++; render(); }
-};
-$("btn_last_page").onclick = () => {
-  const shown = getFilteredNodes();
-  const totalPages = Math.ceil(shown.length / pageSize) || 1;
-  currentPage = totalPages;
-  render();
-};
+$("btn_first_page").addEventListener("click", async () => { currentPage = 1; await load().catch(() => {}); });
+$("btn_prev_page").addEventListener("click", async () => {
+  if (currentPage > 1) {
+    currentPage--;
+    await load().catch(() => {});
+  }
+});
+$("btn_next_page").addEventListener("click", async () => {
+  const totalPages = Math.ceil(Number(nodePagination.total || 0) / pageSize) || 1;
+  if (currentPage < totalPages) {
+    currentPage++;
+    await load().catch(() => {});
+  }
+});
+$("btn_last_page").addEventListener("click", async () => {
+  currentPage = Math.ceil(Number(nodePagination.total || 0) / pageSize) || 1;
+  await load().catch(() => {});
+});
 
 async function toggleFavorite(id, event) {
   if (event) event.stopPropagation();
@@ -54,6 +59,7 @@ function startConnectionPolling() {
       const data = await resp.json();
       nodes = Array.isArray(data.nodes) ? data.nodes : [];
       state = data.state || {};
+      nodePagination = data.pagination || nodePagination;
       stableSortNodes();
       updateCountryFilter();
       render();
@@ -62,14 +68,14 @@ function startConnectionPolling() {
         clearInterval(pollInterval);
         pollInterval = null;
         try {
-          await fetch("./api/test_proxy", { method: "POST" });
+          await fetch("./api/v1/proxy-checks", { method: "POST" });
         } catch(pe){}
-        load();
+        load().catch(() => {});
       }
     } catch(pe) {
       clearInterval(pollInterval);
       pollInterval = null;
-      load();
+      load().catch(() => {});
     }
   }, 1000);
 }
@@ -84,7 +90,7 @@ async function connectNode(id){
   startConnectionPolling();
   
   try {
-    const r = await fetch("./api/connect",{
+    const r = await fetch("./api/v1/operations/connect",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({id})
@@ -114,7 +120,7 @@ async function connectNode(id){
 async function disconnectNode(){
   if (!confirm("确定要断开当前的 VPN 连接吗？")) return;
   try {
-    const response = await fetch("./api/disconnect", { method: "POST" });
+    const response = await fetch("./api/v1/operations/disconnect", { method: "POST" });
     const result = await response.json();
     if (result.ok) {
       const operation = await waitForOperation(result.operation_id);
@@ -122,7 +128,7 @@ async function disconnectNode(){
         throw new Error(operation.error_code || "disconnect_failed");
       }
       try {
-        await fetch("./api/test_proxy", { method: "POST" });
+        await fetch("./api/v1/proxy-checks", { method: "POST" });
       } catch(pe){}
       load();
     } else {
@@ -133,16 +139,63 @@ async function disconnectNode(){
   }
 }
 
-$("country_filter").onchange=()=>{ currentPage = 1; render(); };
-$("ip_type_filter").onchange=()=>{ currentPage = 1; render(); };
-$("status_filter").onchange=()=>{ currentPage = 1; render(); };
-$("region_filter").onchange=async()=>{ selectedRegionId = $("region_filter").value; currentPage = 1; await load(); };
+$("country_filter").addEventListener("change",async()=>{ currentPage = 1; await load().catch(() => {}); });
+$("ip_type_filter").addEventListener("change",async()=>{ currentPage = 1; await load().catch(() => {}); });
+$("status_filter").addEventListener("change",async()=>{ currentPage = 1; await load().catch(() => {}); });
+$("region_filter").addEventListener("change",async()=>{ selectedRegionId = $("region_filter").value; currentPage = 1; await load(); });
 
-$("refresh").onclick=async()=>{ 
+$("select_all_nodes").addEventListener("change", event => {
+  for (const node of currentPageNodes) {
+    if (event.target.checked) selectedNodeIds.add(node.id);
+    else selectedNodeIds.delete(node.id);
+  }
+  render();
+});
+
+document.addEventListener("change", event => {
+  const checkbox = event.target.closest("input[data-node-select]");
+  if (!checkbox) return;
+  const nodeId = checkbox.dataset.nodeId || "";
+  if (checkbox.checked) selectedNodeIds.add(nodeId);
+  else selectedNodeIds.delete(nodeId);
+  $("btn_test_selected").disabled = selectedNodeIds.size === 0;
+  $("selected_node_count").textContent = String(selectedNodeIds.size);
+});
+
+$("btn_test_selected").addEventListener("click", async event => {
+  const ids = [...selectedNodeIds];
+  if (!ids.length) return;
+  if (ids.length > 100) {
+    alert("一次最多检测 100 个节点。");
+    return;
+  }
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch("./api/v1/quality-checks/nodes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "批量检测失败");
+    await waitForOperation(result.operation_id);
+    selectedNodeIds.clear();
+    await load();
+  } catch (error) {
+    alert(error.message || "批量检测失败");
+  } finally {
+    button.removeAttribute("aria-busy");
+    button.disabled = selectedNodeIds.size === 0;
+  }
+});
+
+$("refresh").addEventListener("click",async()=>{
   $("refresh").disabled=true; 
   $("refresh").textContent="正在后台更新..."; 
   try{
-    const response = await fetch("./api/refresh_nodes",{method:"POST"});
+    const response = await fetch("./api/v1/operations/refresh-nodes",{method:"POST"});
     const result = await response.json();
     if (result.ok) await waitForOperation(result.operation_id);
     await load();
@@ -152,8 +205,8 @@ $("refresh").onclick=async()=>{
     $("refresh").disabled=false; 
     $("refresh").textContent="更新节点";
   }, 3000);
-};
-$("btn_test_proxy").onclick = async () => {
+});
+$("btn_test_proxy").addEventListener("click", async () => {
   const btn = $("btn_test_proxy");
   const badge = $("proxy_status_badge");
   const ipVal = $("proxy_ip_val");
@@ -167,15 +220,16 @@ $("btn_test_proxy").onclick = async () => {
   latVal.textContent = "";
   
   try {
-    const response = await fetch("./api/test_proxy", { method: "POST" });
+    const response = await fetch("./api/v1/proxy-checks", { method: "POST" });
     const result = await response.json();
     if (result.ok) {
       badge.className = "badge available";
       badge.textContent = "可用";
       ipVal.textContent = result.ip || "-";
       
-      const latencyClass = getLatencyClass(result.latency_ms);
-      latVal.innerHTML = `<span class="latency-val ${latencyClass}" style="margin-left:8px;">${result.latency_ms} ms</span>`;
+      const latency = Number(result.latency_ms);
+      const latencyClass = getLatencyClass(Number.isFinite(latency) ? latency : 0);
+      latVal.innerHTML = `<span class="latency-val ${latencyClass}" style="margin-left:8px;">${Number.isFinite(latency) ? latency : 0} ms</span>`;
     } else {
       badge.className = "badge unavailable";
       badge.textContent = "不可用";
@@ -191,4 +245,4 @@ $("btn_test_proxy").onclick = async () => {
     btn.disabled = false;
     btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" style="width:16px; height:16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> 测试代理`;
   }
-};
+});

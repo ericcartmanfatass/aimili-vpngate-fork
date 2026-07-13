@@ -1,9 +1,9 @@
 function qualityBadgeHtml(node) {
   const score = Number(node.quality_score ?? 0);
   const label = node.quality_label || (score ? "Scored" : "");
-  const nodeId = esc(node.id || "");
+  const nodeId = node.id || "";
   if (!score && !label) {
-    return `<span class="badge not_checked quality-badge" onclick="openQualityModal('${nodeId}', event)">未评分</span>`;
+    return `<button type="button" class="badge not_checked quality-badge" data-action="open-quality" data-node-id="${esc(nodeId)}">未评分</button>`;
   }
   let badgeClass = "not_checked";
   if (score >= 70) {
@@ -13,7 +13,7 @@ function qualityBadgeHtml(node) {
   }
   const titleParts = Array.isArray(node.quality_reasons) ? node.quality_reasons : [];
   const title = titleParts.length ? titleParts.join(", ") : label;
-  return `<span class="badge ${badgeClass} quality-badge" title="${esc(title)}" onclick="openQualityModal('${nodeId}', event)">${score || "-"} · ${esc(label || "Unknown")}</span>`;
+  return `<button type="button" class="badge ${badgeClass} quality-badge" title="${esc(title)}" data-action="open-quality" data-node-id="${esc(nodeId)}">${Number.isFinite(Number(score)) ? Number(score) : "-"} · ${esc(label || "Unknown")}</button>`;
 }
 
 function formatQualityBool(value) {
@@ -104,7 +104,7 @@ function renderQualityDetails(node, quality) {
       </div>
     </div>
     <div class="quality-actions">
-      <button type="button" class="quality-action-btn" onclick="recheckQualityFromModal('${esc(nodeId)}', event)" ${!nodeId || isTesting ? "disabled" : ""}>
+      <button type="button" class="quality-action-btn" data-action="recheck-quality" data-node-id="${esc(nodeId)}" ${!nodeId || isTesting ? "disabled" : ""}>
         ${isTesting ? "Checking..." : "Recheck"}
       </button>
       <div class="quality-action-note">${riskProvider === "scamalytics" ? "Scamalytics risk data is included in this result." : "Local probe data is shown; Scamalytics is added when configured and reachable."}</div>

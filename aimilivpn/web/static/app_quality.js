@@ -8,10 +8,11 @@ async function openQualityModal(id, event) {
   body.innerHTML = `<div class="message-box">正在加载质量详情...</div>`;
 
   try {
-    const response = await fetch(`./api/quality?node_id=${encodeURIComponent(id)}`);
+    const response = await fetch(`./api/v1/quality-results?node_id=${encodeURIComponent(id)}&limit=1&sort=checked_at&order=desc`);
     const result = await response.json();
-    if (response.ok && result.ok && result.quality) {
-      body.innerHTML = renderQualityDetails(node, result.quality);
+    const quality = Array.isArray(result.qualities) ? result.qualities[0] : result.quality;
+    if (response.ok && quality) {
+      body.innerHTML = renderQualityDetails(node, quality);
       return;
     }
     if (node) {
@@ -67,12 +68,19 @@ function applyRegionQualityResult(result) {
 }
 
 async function requestQualityCheck(id) {
-  const response = await fetch("./api/quality/check-node", {
+  const response = await fetch("./api/v1/quality-checks/node", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ node_id: id })
   });
-  return response.json();
+  const payload = await response.json();
+  if (!response.ok || !payload.ok) return payload;
+  if (!payload.operation_id) return payload;
+  const operation = await waitForOperation(payload.operation_id);
+  if (!operation || operation.status !== "succeeded") {
+    return { ok: false, error: operation ? operation.error_code : "quality_check_failed" };
+  }
+  return { ok: true, ...(operation.result || {}) };
 }
 
 async function testNode(btn, id, event){

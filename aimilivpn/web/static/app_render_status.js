@@ -1,141 +1,131 @@
 function getActiveNodeForRender() {
   const activeNodeId = state.active_openvpn_node_id;
-  return nodes.find(n => n && (n.active || n.id === activeNodeId));
+  return nodes.find(node => node && (node.active || node.id === activeNodeId));
+}
+
+function statusElement(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = String(text);
+  return node;
+}
+
+function appendMeta(details, label, value, className = "") {
+  const item = statusElement("span", "", `${label}: `);
+  const strong = statusElement("strong", className, value || "-");
+  item.append(strong);
+  details.append(item);
 }
 
 function renderActiveNodeCard(activeNode) {
-  // Render separated Active Node Card
-  const activeCardContainer = $("active_node_card");
+  const container = $("active_node_card");
+  const card = statusElement("div", "active-card");
+  const info = statusElement("div", "active-card-info");
+  const icon = statusElement("div", "stat-icon-wrapper");
+  const details = statusElement("div", "active-card-details");
+  icon.setAttribute("aria-hidden", "true");
+  info.append(icon, details);
+  card.append(info);
+
   if (state.is_connecting && !activeNode) {
-    activeCardContainer.innerHTML = `
-      <div class="active-card" style="background: var(--bg-surface); border-color: var(--warning); box-shadow: 0 0 15px rgba(245, 158, 11, 0.15);">
-        <div class="active-card-info">
-          <div class="stat-icon-wrapper" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3); width: 48px; height: 48px; border-radius: 12px;">
-            <svg xmlns="http://www.w3.org/2000/svg" class="stat-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color: #f59e0b; width: 24px; height: 24px; animation: spin 2s linear infinite;"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18" /></svg>
-          </div>
-          <div class="active-card-details">
-            <div class="active-card-title" style="color: var(--text-primary);">
-              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3);"><span class="badge-pulse" style="background: #f59e0b;"></span>正在连接</span>
-              <strong>${esc(state.active_node_latency || '正在连接...')}</strong>
-            </div>
-            <div class="active-card-meta" style="margin-top: 4px;">
-              ${esc(state.last_check_message || '正在与 VPN 节点建立加密隧道，请稍候...')}
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+    card.classList.add("active-card-connecting");
+    icon.textContent = "↻";
+    const title = statusElement("div", "active-card-title");
+    const badge = statusElement("span", "badge", "正在连接");
+    const pulse = statusElement("span", "badge-pulse");
+    badge.prepend(pulse);
+    title.append(badge, statusElement("strong", "", state.active_node_latency || "正在连接..."));
+    details.append(title, statusElement("div", "active-card-meta", state.last_check_message || "正在建立 VPN 加密通道，请稍候..."));
   } else if (activeNode) {
-    const latencyClass = getLatencyClass(activeNode.latency_ms);
-    const latencyText = activeNode.latency_ms ? `<span class="latency-val ${latencyClass}">${activeNode.latency_ms} ms</span>` : "-";
-    const displayLocation = activeNode.location || translateCountry(activeNode.country) || "-";
-    activeCardContainer.innerHTML = `
-      <div class="active-card">
-        <div class="active-card-info">
-          <div class="stat-icon-wrapper" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.3); width: 48px; height: 48px; border-radius: 12px;">
-            <svg xmlns="http://www.w3.org/2000/svg" class="stat-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color: #34d399; width: 24px; height: 24px;"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-          </div>
-          <div class="active-card-details">
-            <div class="active-card-title">
-              <span class="badge available"><span class="badge-pulse"></span>已连接</span>
-              <strong>${esc(translateCountry(activeNode.country))} 节点</strong>
-            </div>
-            <div class="active-card-value mono" style="font-size: 20px; margin-top: 2px;">
-              ${esc(activeNode.ip || activeNode.remote_host)}:${activeNode.remote_port || ""}
-            </div>
-            <div class="active-card-meta" style="margin-top: 4px;">
-              <span>物理位置: <strong>${esc(displayLocation)}</strong></span>
-              <span style="margin-left: 12px;">延时: <strong>${latencyText}</strong></span>
-              <span style="margin-left: 12px;">运营主体: <strong>${esc(activeNode.owner || activeNode.as_name || "-")}</strong></span>
-              <span style="margin-left: 12px;">IP 类型: <strong>${esc(translateIpType(activeNode.ip_type))}</strong></span>
-            </div>
-          </div>
-        </div>
-        <button class="btn-danger" style="height: 38px; padding: 0 16px; border-radius: 8px;" onclick="disconnectNode()">
-          <svg xmlns="http://www.w3.org/2000/svg" style="width:16px; height:16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          断开连接
-        </button>
-      </div>
-    `;
+    icon.textContent = "⚡";
+    const title = statusElement("div", "active-card-title");
+    const badge = statusElement("span", "badge available", "已连接");
+    badge.prepend(statusElement("span", "badge-pulse"));
+    title.append(badge, statusElement("strong", "", `${translateCountry(activeNode.country)} 节点`));
+    const address = statusElement(
+      "div",
+      "active-card-value mono",
+      `${activeNode.ip || activeNode.remote_host || "-"}:${activeNode.remote_port || ""}`,
+    );
+    const meta = statusElement("div", "active-card-meta");
+    appendMeta(meta, "物理位置", activeNode.location || translateCountry(activeNode.country));
+    appendMeta(meta, "延时", activeNode.latency_ms ? `${activeNode.latency_ms} ms` : "-", getLatencyClass(activeNode.latency_ms));
+    appendMeta(meta, "运营主体", activeNode.owner || activeNode.as_name || "-");
+    appendMeta(meta, "IP 类型", translateIpType(activeNode.ip_type));
+    details.append(title, address, meta);
+
+    const disconnect = statusElement("button", "btn-danger", "断开连接");
+    disconnect.type = "button";
+    disconnect.dataset.action = "disconnect-node";
+    card.append(disconnect);
   } else {
-    activeCardContainer.innerHTML = `
-      <div class="active-card" style="background: var(--bg-surface); border-color: var(--border-color); box-shadow: none;">
-        <div class="active-card-info">
-          <div class="stat-icon-wrapper" style="background: rgba(244, 63, 94, 0.1); border-color: rgba(244, 63, 94, 0.2); width: 48px; height: 48px; border-radius: 12px;">
-            <svg xmlns="http://www.w3.org/2000/svg" class="stat-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color: var(--danger); width: 24px; height: 24px;"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-          </div>
-          <div class="active-card-details">
-            <div class="active-card-title" style="color: var(--text-secondary);">
-              <span class="badge unavailable" style="padding: 2px 8px;">未连接</span> 当前未连接 VPN 节点
-            </div>
-            <div class="active-card-meta" style="margin-top: 4px;">
-              在下方列表中选择一个可用备用节点并点击 “切换” 按钮开始连接。
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+    card.classList.add("active-card-empty");
+    icon.textContent = "○";
+    const title = statusElement("div", "active-card-title");
+    title.append(statusElement("span", "badge unavailable", "未连接"));
+    title.append(document.createTextNode(" 当前未连接 VPN 节点"));
+    details.append(title, statusElement("div", "active-card-meta", "请从下方列表选择可用节点并点击“切换”。"));
   }
+
+  container.replaceChildren(card);
 }
 
 function renderSummaryStatus(activeNode) {
-  if ($("total")) $("total").textContent = nodes.length; 
-  if ($("target")) $("target").textContent = state.target_valid_nodes || 3;
-  if ($("active")) $("active").textContent = activeNode ? 1 : 0; 
-  
-  const statusMessage = state.last_check_message || "";
-  const activeNodeInfo = activeNode ? `<span class="badge available" style="margin-left:8px; padding:2px 8px;">${esc(translateCountry(activeNode.country))} (${activeNode.id})</span>` : `<span class="badge unavailable" style="margin-left:8px; padding:2px 8px;">无</span>`;
+  if ($("total")) $("total").textContent = String(nodes.length);
+  if ($("target")) $("target").textContent = String(state.target_valid_nodes || 3);
+  if ($("active")) $("active").textContent = activeNode ? "1" : "0";
+
+  const status = $("status");
+  if (!status) return;
   const localProxy = state.local_proxy || `http://127.0.0.1:${state.proxy_port || 7928}`;
-  if ($("status")) { $("status").innerHTML=`<span class="status-dot"></span>HTTP 代理本地接口：${localProxy} | 活动节点：${activeNodeInfo} | 状态：${statusMessage}`; }
+  const badge = statusElement(
+    "span",
+    activeNode ? "badge available" : "badge unavailable",
+    activeNode ? `${translateCountry(activeNode.country)} (${activeNode.id || "-"})` : "无",
+  );
+  const statusMessage = state.last_check_message || "";
+  status.replaceChildren(
+    statusElement("span", "status-dot"),
+    document.createTextNode(`HTTP 代理本地接口：${localProxy} | 活动节点：`),
+    badge,
+    document.createTextNode(` | 状态：${statusMessage}`),
+  );
+}
+
+function setProxyDetail(container, text, className = "") {
+  container.replaceChildren(statusElement("span", className, text));
 }
 
 function renderProxyStatusCard() {
-  // Update proxy test status card based on background checks
-  const pBadge = $("proxy_status_badge");
-  const pIpVal = $("proxy_ip_val");
-  const pLatVal = $("proxy_latency_val");
-  const pBtn = $("btn_test_proxy");
-  
+  const badge = $("proxy_status_badge");
+  const ipValue = $("proxy_ip_val");
+  const latencyValue = $("proxy_latency_val");
+  const button = $("btn_test_proxy");
+
   if (state.is_connecting) {
-    pBadge.className = "badge";
-    pBadge.style.background = "rgba(245, 158, 11, 0.15)";
-    pBadge.style.color = "#f59e0b";
-    pBadge.style.borderColor = "rgba(245, 158, 11, 0.3)";
-    pBadge.innerHTML = `<span class="badge-pulse" style="background: #f59e0b;"></span>正在连接`;
-    pIpVal.textContent = state.active_node_latency || "正在连接...";
-    pLatVal.innerHTML = `<span style="color: var(--text-secondary); font-size: 12px;">${esc(state.last_check_message || "正在与 VPN 节点建立加密隧道，请稍候...")}</span>`;
-    pBtn.disabled = true;
-    pBtn.style.opacity = "0.5";
-    pBtn.style.cursor = "not-allowed";
+    badge.className = "badge";
+    badge.replaceChildren(statusElement("span", "badge-pulse"), document.createTextNode("正在连接"));
+    ipValue.textContent = state.active_node_latency || "正在连接...";
+    setProxyDetail(latencyValue, state.last_check_message || "正在建立 VPN 加密通道，请稍候...");
+    button.disabled = true;
+    return;
+  }
+
+  button.disabled = false;
+  if (state.proxy_ok === true) {
+    badge.className = "badge available";
+    badge.textContent = "可用";
+    ipValue.textContent = state.proxy_ip || "-";
+    setProxyDetail(latencyValue, `${state.proxy_latency_ms || 0} ms`, `latency-val ${getLatencyClass(state.proxy_latency_ms)}`);
+  } else if (state.proxy_ok === false) {
+    badge.className = "badge unavailable";
+    badge.textContent = "不可用";
+    ipValue.textContent = "-";
+    setProxyDetail(latencyValue, state.proxy_error || "连接失败", "latency-val latency-poor");
   } else {
-    pBtn.disabled = false;
-    pBtn.style.opacity = "";
-    pBtn.style.cursor = "";
-    pBadge.style.background = "";
-    pBadge.style.color = "";
-    pBadge.style.borderColor = "";
-    if (state.proxy_ok !== undefined) {
-      if (state.proxy_ok) {
-        pBadge.className = "badge available";
-        pBadge.textContent = "可用";
-        pIpVal.textContent = state.proxy_ip || "-";
-        const latencyClass = getLatencyClass(state.proxy_latency_ms);
-        pLatVal.innerHTML = `<span class="latency-val ${latencyClass}" style="margin-left:8px;">${state.proxy_latency_ms} ms</span>`;
-      } else {
-        pBadge.className = "badge unavailable";
-        pBadge.textContent = "不可用";
-        pIpVal.textContent = "-";
-        pLatVal.innerHTML = `<span class="latency-val latency-poor" style="margin-left:8px; font-size:11px; max-width: 450px; display: inline-block; white-space: normal; line-height: 1.4; text-align: left;" title="${esc(state.proxy_error)}">${esc(state.proxy_error || "连接失败")}</span>`;
-      }
-    } else {
-      pBadge.className = "badge not_checked";
-      pBadge.textContent = "未检测";
-      pIpVal.textContent = "-";
-      if (state.last_check_message) {
-        pLatVal.innerHTML = `<span style="color: var(--text-secondary); font-size: 12px;">${esc(state.last_check_message)}</span>`;
-      } else {
-        pLatVal.innerHTML = "";
-      }
-    }
+    badge.className = "badge not_checked";
+    badge.textContent = "未检测";
+    ipValue.textContent = "-";
+    setProxyDetail(latencyValue, state.last_check_message || "");
   }
 }

@@ -1,5 +1,5 @@
 // 页面加载时自动初始化数据
-load();
+load().catch(() => {});
 
 // 每 10 秒在前台空闲时自动更新节点与状态，无需手动刷新页面
 setInterval(async () => {
@@ -9,6 +9,7 @@ setInterval(async () => {
       const d = await r.json();
       nodes = d.nodes || [];
       state = d.state || {};
+      nodePagination = d.pagination || nodePagination;
       stableSortNodes();
       updateCountryFilter();
       render();
