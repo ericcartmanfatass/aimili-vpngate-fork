@@ -24,6 +24,7 @@ class FetchRuntimeWiring:
     country_translations: dict[str, str]
     safe_name: Callable[[str], str]
     now: Callable[[], float]
+    blacklist_repository: Any | None = None
 
 
 @dataclass(frozen=True)

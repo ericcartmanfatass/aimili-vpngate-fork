@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from aimilivpn.core.models import QualityResult, VpnNode
 from aimilivpn.core.scoring import apply_score
+from aimilivpn.core.storage import ProviderCacheRepository
 
 from .quality_base import QualityProvider
 
@@ -38,6 +39,7 @@ class ScamalyticsProvider(QualityProvider):
         rate_limit_per_minute: int = 30,
         opener: UrlOpenFunc | None = None,
         clock: Callable[[], float] | None = None,
+        cache_repository: ProviderCacheRepository | None = None,
     ) -> None:
         self.username = username
         self.api_key = api_key
@@ -47,6 +49,7 @@ class ScamalyticsProvider(QualityProvider):
         self.rate_limit_per_minute = rate_limit_per_minute
         self.opener = opener or urllib.request.urlopen
         self.clock = clock or time.time
+        self.cache_repository = cache_repository
         self._cache: dict[str, tuple[float, QualityResult]] = {}
         self._request_times: list[float] = []
 
@@ -71,11 +74,29 @@ class ScamalyticsProvider(QualityProvider):
         cached = self._cache.get(ip)
         if cached and now - cached[0] < self.cache_ttl_seconds:
             return replace(cached[1])
+        if self.cache_repository is not None:
+            try:
+                persistent = self.cache_repository.get(self.name, ip, now=now)
+            except Exception:
+                persistent = None
+            if persistent is not None:
+                self._cache[ip] = (now, persistent)
+                return replace(persistent)
 
         self._enforce_rate_limit(now)
         data = self._fetch(ip)
         result = parse_scamalytics_response(ip, data, checked_at=_utc_now_iso())
         self._cache[ip] = (now, result)
+        if self.cache_repository is not None:
+            try:
+                self.cache_repository.put(
+                    self.name,
+                    ip,
+                    result,
+                    expires_at=now + self.cache_ttl_seconds,
+                )
+            except Exception:
+                pass
         return replace(result)
 
     def _fetch(self, ip: str) -> dict[str, Any]:

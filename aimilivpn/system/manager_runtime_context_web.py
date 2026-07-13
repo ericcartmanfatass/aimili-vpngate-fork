@@ -19,7 +19,7 @@ from aimilivpn.system.manager_web import default_index_html, default_login_html
 
 def build_web_runtime(ctx: object) -> None:
     ctx.manager_web_runtime = wiring.build_web_runtime(wiring.WebManagerRuntimeWiring(
-        region_repository=ctx.region_repository,
+        region_repository=ctx.manager_repository_runtime.facade(),
         read_regions=ctx.read_regions,
         read_nodes=ctx.read_nodes,
         region_from_payload=ctx.region_from_payload,

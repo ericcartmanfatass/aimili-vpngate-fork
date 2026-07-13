@@ -17,6 +17,7 @@ class RegionPreview:
     total_nodes: int
     matched_nodes: int
     matched_node_ids: list[str]
+    exclusion_reasons: dict[str, int]
 
 
 _REGION_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -86,36 +87,48 @@ def match_node(
     node: VpnNode | dict[str, Any],
     quality: QualityResult | dict[str, Any] | None = None,
 ) -> bool:
+    return region_exclusion_reason(region, node, quality) is None
+
+
+def region_exclusion_reason(
+    region: RegionProfile,
+    node: VpnNode | dict[str, Any],
+    quality: QualityResult | dict[str, Any] | None = None,
+) -> str | None:
     validate_region(region)
     if not region.enabled:
-        return False
+        return "region_disabled"
 
     country_code = _node_value(node, "country_code", "country_short")
     if country_code and country_code.upper() not in {code.upper() for code in region.country_codes}:
-        return False
+        return "country_not_allowed"
     if not country_code:
-        return False
+        return "country_unknown"
 
     searchable = _search_text(node)
     include_keywords = [item.strip().lower() for item in region.include_keywords if item.strip()]
     exclude_keywords = [item.strip().lower() for item in region.exclude_keywords if item.strip()]
 
     if include_keywords and not any(keyword in searchable for keyword in include_keywords):
-        return False
+        return "include_keyword_missing"
     if exclude_keywords and any(keyword in searchable for keyword in exclude_keywords):
-        return False
+        return "exclude_keyword_matched"
 
     quality_score = _quality_score(node, quality)
     if region.min_quality_score is not None:
-        if quality_score is None or quality_score < region.min_quality_score:
-            return False
+        if quality_score is None:
+            return "quality_not_tested"
+        if quality_score < region.min_quality_score:
+            return "quality_below_minimum"
 
     risk_score = _quality_value(quality, "risk_score")
     if region.max_risk_score is not None:
-        if risk_score is None or int(risk_score) > region.max_risk_score:
-            return False
+        if risk_score is None:
+            return "risk_not_tested"
+        if int(risk_score) > region.max_risk_score:
+            return "risk_above_maximum"
 
-    return True
+    return None
 
 
 def preview_region(
@@ -125,16 +138,21 @@ def preview_region(
 ) -> RegionPreview:
     quality_by_node = quality_by_node or {}
     matched: list[str] = []
+    exclusion_reasons: dict[str, int] = {}
     for node in nodes:
         node_id = str(_node_value(node, "id") or "")
         quality = quality_by_node.get(node_id)
-        if match_node(region, node, quality):
+        reason = region_exclusion_reason(region, node, quality)
+        if reason is None:
             matched.append(node_id)
+        else:
+            exclusion_reasons[reason] = exclusion_reasons.get(reason, 0) + 1
     return RegionPreview(
         region_id=region.id,
         total_nodes=len(nodes),
         matched_nodes=len(matched),
         matched_node_ids=matched,
+        exclusion_reasons=exclusion_reasons,
     )
 
 
@@ -180,7 +198,6 @@ def _quality_score(node: VpnNode | dict[str, Any], quality: QualityResult | dict
     for value in [
         _quality_value(quality, "score"),
         _node_value(node, "quality_score"),
-        _node_value(node, "score"),
     ]:
         if value is None:
             continue

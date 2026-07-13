@@ -83,10 +83,13 @@ async function previewRegion(id) {
     }
     const preview = data.preview;
     const sampleIds = Array.isArray(preview.matched_node_ids) ? preview.matched_node_ids.slice(0, 8).join(", ") : "";
+    const exclusions = preview.exclusion_reasons || {};
+    const notTested = Number(exclusions.quality_not_tested || 0) + Number(exclusions.risk_not_tested || 0);
     previewBox.innerHTML = `
       <div class="message-box success">
         匹配 ${esc(preview.matched_nodes)} / ${esc(preview.total_nodes)} 个节点
         ${sampleIds ? `<div class="mono" style="margin-top: 6px; white-space: normal;">${esc(sampleIds)}</div>` : ""}
+        ${notTested ? `<div class="muted" style="margin-top: 6px;">${esc(notTested)} 个节点因尚未完成所需质量/风险检测而被排除</div>` : ""}
       </div>
     `;
   } catch (e) {

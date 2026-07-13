@@ -102,6 +102,7 @@ class RegionsTests(unittest.TestCase):
             datacenter_detected=False,
             country_match=True,
             checked_at="2026-06-17T00:00:00Z",
+            score=80,
         )
 
         self.assertTrue(match_node(region(min_quality_score=70, max_risk_score=40), node, quality))
@@ -120,6 +121,16 @@ class RegionsTests(unittest.TestCase):
         self.assertEqual(preview.total_nodes, 3)
         self.assertEqual(preview.matched_nodes, 2)
         self.assertEqual(preview.matched_node_ids, ["jp_1", "kr_1"])
+        self.assertEqual(preview.exclusion_reasons, {"country_not_allowed": 1})
+
+    def test_quality_rules_reject_untested_nodes_with_stable_reason(self) -> None:
+        preview = preview_region(
+            region(min_quality_score=70, max_risk_score=40),
+            [{"id": "jp_1", "country_short": "JP", "score": 9999}],
+        )
+
+        self.assertEqual(preview.matched_nodes, 0)
+        self.assertEqual(preview.exclusion_reasons, {"quality_not_tested": 1})
 
 
 if __name__ == "__main__":

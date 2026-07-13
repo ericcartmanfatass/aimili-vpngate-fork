@@ -7,6 +7,7 @@ import time
 
 from aimilivpn.system.blacklist_store import BlacklistStore
 from aimilivpn.system.vpngate_fetch import VpnGateFetchFacade
+from aimilivpn.core.storage import BlacklistRepository
 
 
 @dataclass
@@ -28,13 +29,19 @@ class ManagerFetchRuntime:
     country_translations: dict[str, str]
     safe_name: Callable[[str], str]
     now: Callable[[], float] = time.time
+    blacklist_repository: BlacklistRepository | None = None
 
     def blacklist_store(self) -> BlacklistStore:
+        kwargs: dict[str, Any] = {
+            "path": self.blacklist_file,
+            "lock": self.lock,
+            "backoff_seconds": self.invalid_backoff_seconds,
+            "now": self.now,
+        }
+        if self.blacklist_repository is not None:
+            kwargs["repository"] = self.blacklist_repository
         return BlacklistStore(
-            path=self.blacklist_file,
-            lock=self.lock,
-            backoff_seconds=self.invalid_backoff_seconds,
-            now=self.now,
+            **kwargs,
         )
 
     def load_blacklist(self) -> dict[str, dict[str, Any]]:

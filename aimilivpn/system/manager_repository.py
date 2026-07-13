@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from aimilivpn.core.models import RegionProfile
-from aimilivpn.core.storage import NodeRepository, RegionRepository
+from aimilivpn.core.storage import BlacklistRepository, NodeRepository, QualityRepository, RegionRepository, SettingsRepository
 from aimilivpn.system.repository_facade import RepositoryFacade
 
 
@@ -13,15 +13,25 @@ class ManagerRepositoryRuntime:
     node_repository: NodeRepository
     region_repository: RegionRepository
     country_translations: Mapping[str, str]
+    quality_repository: QualityRepository | None = None
+    settings_repository: SettingsRepository | None = None
+    blacklist_repository: BlacklistRepository | None = None
     _facade: RepositoryFacade | None = field(default=None, init=False)
 
     def facade(self) -> RepositoryFacade:
         if self._facade is None:
-            self._facade = RepositoryFacade(
-                node_repository=self.node_repository,
-                region_repository=self.region_repository,
-                country_translations=self.country_translations,
-            )
+            kwargs: dict[str, Any] = {
+                "node_repository": self.node_repository,
+                "region_repository": self.region_repository,
+                "country_translations": self.country_translations,
+            }
+            if self.quality_repository is not None:
+                kwargs["quality_repository"] = self.quality_repository
+            if self.settings_repository is not None:
+                kwargs["settings_repository"] = self.settings_repository
+            if self.blacklist_repository is not None:
+                kwargs["blacklist_repository"] = self.blacklist_repository
+            self._facade = RepositoryFacade(**kwargs)
         return self._facade
 
     def read_nodes(self) -> list[dict[str, Any]]:

@@ -58,6 +58,7 @@ def quality_provider_status(config: AppConfig) -> dict[str, Any]:
                 "timeout_seconds": config.scamalytics_timeout_seconds,
                 "cache_ttl_seconds": config.scamalytics_cache_ttl_seconds,
                 "rate_limit_per_minute": config.scamalytics_rate_limit_per_minute,
+                "persistent_cache": True,
             },
         ]
     }

@@ -92,6 +92,7 @@ def build_fetch_runtime(ctx: object) -> None:
         country_translations=vpn_utils.COUNTRY_TRANSLATIONS,
         safe_name=safe_name,
         now=time.time,
+        blacklist_repository=ctx.manager_repository_runtime.facade(),
     ))
     ctx.vpngate_fetch_facade = ctx.manager_fetch_runtime.facade
     ctx.fetch_api_text_via_proxy = ctx.manager_fetch_runtime.fetch_api_text_via_proxy

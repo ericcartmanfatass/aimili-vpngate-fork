@@ -3,7 +3,16 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository, SettingsRepository, build_store
+from aimilivpn.core.storage import (
+    BlacklistRepository,
+    NodeRepository,
+    QualityRepository,
+    RegionRepository,
+    SettingsRepository,
+    SqliteStore,
+    build_store,
+    migrate_json_to_sqlite,
+)
 from aimilivpn.system.manager_auth import ManagerAuthRuntime
 from aimilivpn.system.manager_quality import ManagerQualityRuntime
 from aimilivpn.system.manager_repository import ManagerRepositoryRuntime
@@ -31,15 +40,28 @@ def build_repositories(
     storage_backend: str = "json",
     sqlite_db_path: Path | None = None,
 ) -> ManagerRepositories:
+    blacklist_path = getattr(paths, "blacklist_file", paths.nodes_file.parent / "blacklist.json")
     store = None
     if (storage_backend or "json").strip().lower() != "json":
         store = build_store(storage_backend, sqlite_db_path=sqlite_db_path)
+        if isinstance(store, SqliteStore):
+            migrate_json_to_sqlite(
+                {
+                    paths.nodes_file: "nodes",
+                    paths.regions_file: "regions",
+                    paths.quality_results_file: "quality_results",
+                    paths.settings_file: "settings",
+                    blacklist_path: "blacklist",
+                },
+                store,
+            )
     store_kwargs = {"store": store} if store is not None else {}
     return ManagerRepositories(
         node_repository=NodeRepository(paths.nodes_file, **store_kwargs),
         region_repository=RegionRepository(paths.regions_file, **store_kwargs),
         quality_repository=QualityRepository(paths.quality_results_file, **store_kwargs),
         settings_repository=SettingsRepository(paths.settings_file, **store_kwargs),
+        blacklist_repository=BlacklistRepository(blacklist_path, **store_kwargs),
     )
 
 

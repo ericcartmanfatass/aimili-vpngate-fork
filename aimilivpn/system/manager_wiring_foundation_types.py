@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, MutableMapping
 
 from aimilivpn.core.config import AppConfig
-from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository, SettingsRepository
+from aimilivpn.core.storage import BlacklistRepository, NodeRepository, QualityRepository, RegionRepository, SettingsRepository
 from aimilivpn.system.manager_state import ManagerMutableState
 from aimilivpn.system.runtime_paths import RuntimePaths
 
@@ -16,6 +16,7 @@ class ManagerRepositories:
     region_repository: RegionRepository
     quality_repository: QualityRepository
     settings_repository: SettingsRepository
+    blacklist_repository: BlacklistRepository
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,9 @@ class ManagerUiEndpoints:
 class RepositoryRuntimeWiring:
     node_repository: NodeRepository
     region_repository: RegionRepository
+    quality_repository: QualityRepository
+    settings_repository: SettingsRepository
+    blacklist_repository: BlacklistRepository
     country_translations: Mapping[str, str]
 
 

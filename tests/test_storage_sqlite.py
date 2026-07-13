@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -60,6 +62,28 @@ class StorageSqliteTests(unittest.TestCase):
 
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded.country_code, "JP")  # type: ignore[union-attr]
+
+    def test_legacy_sqlite_table_is_upgraded_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "aimilivpn.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute("CREATE TABLE json_documents (document_key TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            conn.execute(
+                "INSERT INTO json_documents(document_key, payload) VALUES(?, ?)",
+                ("nodes.json", json.dumps([{"id": "jp_1", "country_short": "JP"}])),
+            )
+            conn.commit()
+            conn.close()
+
+            loaded = NodeRepository(Path("nodes.json"), store=SqliteStore(db_path)).get("jp_1")
+            conn = sqlite3.connect(db_path)
+            try:
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(json_documents)")}
+            finally:
+                conn.close()
+
+            self.assertIsNotNone(loaded)
+            self.assertTrue({"schema_version", "document_kind", "item_count", "checksum"} <= columns)
 
     def test_repositories_share_sqlite_store_without_crossing_documents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

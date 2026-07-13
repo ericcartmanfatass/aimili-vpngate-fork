@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from aimilivpn.core.config import AppConfig, load_config
 from aimilivpn.core.models import QualityResult, RegionProfile
-from aimilivpn.core.regions import match_node
+from aimilivpn.core.regions import match_node, region_exclusion_reason
 from aimilivpn.core.scoring import apply_score
-from aimilivpn.core.storage import QualityRepository, RegionRepository
+from aimilivpn.core.storage import ProviderCacheRepository, QualityRepository, RegionRepository
 from aimilivpn.providers.scamalytics import (
     ScamalyticsError,
     ScamalyticsProvider,
@@ -20,7 +21,11 @@ from aimilivpn.web.api import quality_to_dict, region_to_dict
 ProviderGetter = Callable[[], ScamalyticsProvider | None]
 
 
-def configured_scamalytics_provider(config: AppConfig, current: ScamalyticsProvider | None) -> ScamalyticsProvider | None:
+def configured_scamalytics_provider(
+    config: AppConfig,
+    current: ScamalyticsProvider | None,
+    cache_repository: ProviderCacheRepository | None = None,
+) -> ScamalyticsProvider | None:
     if not config.scamalytics_configured:
         return None
     if (
@@ -39,6 +44,7 @@ def configured_scamalytics_provider(config: AppConfig, current: ScamalyticsProvi
             timeout_seconds=config.scamalytics_timeout_seconds,
             cache_ttl_seconds=config.scamalytics_cache_ttl_seconds,
             rate_limit_per_minute=config.scamalytics_rate_limit_per_minute,
+            cache_repository=cache_repository,
         )
     return current
 
@@ -139,17 +145,28 @@ def check_region(
     if region is None:
         raise KeyError(region_id)
 
+    all_nodes = read_nodes()
     quality_by_node = latest_map(quality_repository)
-    nodes = matching_region_nodes(region, read_nodes(), quality_by_node, node_allowed)
+    selection_region = replace(region, min_quality_score=None, max_risk_score=None)
+    candidates = matching_region_nodes(selection_region, all_nodes, quality_by_node, node_allowed)
     limit = bounded_int(limit, 20, 1, 100)
-    node_ids = [str(node.get("id") or "") for node in nodes[:limit] if node.get("id")]
+    node_ids = [str(node.get("id") or "") for node in candidates[:limit] if node.get("id")]
     tested_nodes = test_multiple_nodes(node_ids) if node_ids else []
+    quality_by_node = latest_map(quality_repository)
+    nodes = matching_region_nodes(region, all_nodes, quality_by_node, node_allowed)
+    exclusions: dict[str, int] = {}
+    for node in candidates:
+        reason = region_exclusion_reason(region, node, quality_by_node.get(str(node.get("id") or "")))
+        if reason is not None:
+            exclusions[reason] = exclusions.get(reason, 0) + 1
     return {
         "region": region_to_dict(region),
         "total_matches": len(nodes),
+        "total_candidates": len(candidates),
         "tested_count": len(tested_nodes),
         "limit": limit,
         "nodes": tested_nodes,
+        "exclusion_reasons": exclusions,
         "qualities": {
             node_id: quality_to_dict(latest_for_node(quality_repository, node_id))
             for node_id in node_ids

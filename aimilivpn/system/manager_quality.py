@@ -23,10 +23,19 @@ class ManagerQualityRuntime:
     _scamalytics_provider: ScamalyticsProvider | None = field(default=None, init=False)
 
     def get_scamalytics_provider(self) -> ScamalyticsProvider | None:
-        self._scamalytics_provider = quality_runtime.configured_scamalytics_provider(
-            self.app_config,
-            self._scamalytics_provider,
-        )
+        cache_factory = getattr(self.quality_repository, "provider_cache", None)
+        cache_repository = cache_factory() if callable(cache_factory) else None
+        if cache_repository is None:
+            self._scamalytics_provider = quality_runtime.configured_scamalytics_provider(
+                self.app_config,
+                self._scamalytics_provider,
+            )
+        else:
+            self._scamalytics_provider = quality_runtime.configured_scamalytics_provider(
+                self.app_config,
+                self._scamalytics_provider,
+                cache_repository,
+            )
         return self._scamalytics_provider
 
     def enrich_quality_with_scamalytics(

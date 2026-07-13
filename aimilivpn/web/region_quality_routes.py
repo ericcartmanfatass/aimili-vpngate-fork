@@ -72,7 +72,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
                 if region is None:
                     handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
                     return True
-                preview = preview_region(region, context.read_nodes())
+                preview = preview_region(region, context.read_nodes(), context.latest_quality_map())
                 handler.send_json({"ok": True, "preview": preview.__dict__})
             except (InvalidRegion, ValueError) as exc:
                 send_client_error(handler, "invalid_region", str(exc))

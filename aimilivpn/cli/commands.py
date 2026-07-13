@@ -12,6 +12,7 @@ from aimilivpn.core.config import AppConfig, load_config
 from aimilivpn.core.models import QualityResult
 from aimilivpn.core.regions import match_node
 from aimilivpn.core.storage import JsonStore, NodeRepository, QualityRepository, RegionRepository
+from aimilivpn.system.repository_facade import RepositoryFacade
 
 
 class CliError(RuntimeError):
@@ -25,9 +26,12 @@ class CliContext:
     def __init__(self, root_dir: Path | None = None, runner: Runner | None = None) -> None:
         self.root_dir = root_dir or Path.cwd()
         self.config = load_config(self.root_dir)
-        self.nodes = NodeRepository(self.config.nodes_file)
-        self.regions = RegionRepository(self.config.data_dir / "regions.json")
-        self.quality = QualityRepository(self.config.data_dir / "quality_results.json")
+        self.repositories = RepositoryFacade(
+            node_repository=NodeRepository(self.config.nodes_file),
+            region_repository=RegionRepository(self.config.data_dir / "regions.json"),
+            quality_repository=QualityRepository(self.config.data_dir / "quality_results.json"),
+            country_translations={},
+        )
         self.store = JsonStore()
         self.system_config_dir = Path(os.environ.get("AIMILIVPN_CONFIG_DIR", "/etc/aimilivpn"))
         self.install_dir = Path(os.environ.get("AIMILIVPN_INSTALL_DIR", "/opt/aimilivpn"))
@@ -175,8 +179,8 @@ def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
 
 
 def cmd_nodes_list(args: Any, ctx: CliContext, stdout: TextIO) -> int:
-    nodes = ctx.nodes.list_node_dicts()
-    quality_by_node = ctx.quality.list_latest()
+    nodes = ctx.repositories.read_nodes()
+    quality_by_node = ctx.repositories.list_latest()
 
     if args.country:
         country = str(args.country).strip().upper()
@@ -186,7 +190,7 @@ def cmd_nodes_list(args: Any, ctx: CliContext, stdout: TextIO) -> int:
         ]
 
     if args.region:
-        region = ctx.regions.get(str(args.region))
+        region = ctx.repositories.get(str(args.region))
         if region is None:
             raise CliError(f"region not found: {args.region}")
         nodes = [
@@ -214,7 +218,7 @@ def cmd_nodes_list(args: Any, ctx: CliContext, stdout: TextIO) -> int:
 
 
 def cmd_regions_list(args: Any, ctx: CliContext, stdout: TextIO) -> int:
-    regions = [_region_payload(region) for region in ctx.regions.list_regions()]
+    regions = [_region_payload(region) for region in ctx.repositories.read_regions()]
     if args.json:
         _write_payload(regions, True, stdout)
     else:
@@ -240,14 +244,14 @@ def cmd_quality_providers(args: Any, ctx: CliContext, stdout: TextIO) -> int:
 
 def cmd_quality_latest(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.node_id:
-        result = ctx.quality.latest_for_node(args.node_id)
+        result = ctx.repositories.latest_for_node(args.node_id)
         if result is None:
             raise CliError(f"quality result not found: {args.node_id}")
         payload = _quality_payload(result)
         _write_payload(payload, args.json, stdout)
         return 0
 
-    rows = [_quality_payload(result) for result in ctx.quality.list_latest().values()]
+    rows = [_quality_payload(result) for result in ctx.repositories.list_latest().values()]
     if args.json:
         _write_payload(rows, True, stdout)
     else:

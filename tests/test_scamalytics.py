@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 
 from aimilivpn.core.models import QualityResult
+from aimilivpn.core.storage import ProviderCacheRepository
 from aimilivpn.providers.scamalytics import (
     ScamalyticsProvider,
     ScamalyticsRateLimited,
@@ -93,6 +97,46 @@ class ScamalyticsTests(unittest.TestCase):
         provider.check_ip("203.0.113.1")
         with self.assertRaises(ScamalyticsRateLimited):
             provider.check_ip("203.0.113.2")
+
+    def test_provider_cache_survives_provider_restart_without_raw_response(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = ProviderCacheRepository(Path(tmp) / "provider_cache.json")
+            first = ScamalyticsProvider(
+                "demo-user",
+                "demo-key",
+                opener=lambda request, timeout: FakeResponse({"ip": "203.0.113.1", "score": 12}),
+                clock=lambda: 1000.0,
+                cache_repository=cache,
+            )
+            first.check_ip("203.0.113.1")
+            restarted = ScamalyticsProvider(
+                "demo-user",
+                "demo-key",
+                opener=lambda request, timeout: (_ for _ in ()).throw(AssertionError("network must not be used")),
+                clock=lambda: 1001.0,
+                cache_repository=cache,
+            )
+
+            cached = restarted.check_ip("203.0.113.1")
+
+            self.assertEqual(cached.risk_score, 12)
+            self.assertIsNone(cached.raw_response)
+
+    def test_cache_failure_only_reduces_information(self) -> None:
+        cache = Mock(spec=ProviderCacheRepository)
+        cache.get.side_effect = OSError("cache unavailable")
+        cache.put.side_effect = OSError("cache unavailable")
+        provider = ScamalyticsProvider(
+            "demo-user",
+            "demo-key",
+            opener=lambda request, timeout: FakeResponse({"ip": "203.0.113.1", "score": 12}),
+            clock=lambda: 1000.0,
+            cache_repository=cache,
+        )
+
+        result = provider.check_ip("203.0.113.1")
+
+        self.assertEqual(result.risk_score, 12)
 
     def test_merge_scamalytics_result_preserves_probe_fields(self) -> None:
         base = QualityResult(

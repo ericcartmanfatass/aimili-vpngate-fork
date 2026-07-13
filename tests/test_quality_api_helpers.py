@@ -229,6 +229,34 @@ class QualityApiHelperTests(unittest.TestCase):
             self.assertEqual(called, [["jp_1"]])
             self.assertIn("jp_1", summary["qualities"])
 
+    def test_check_quality_region_bootstraps_unknown_quality_then_applies_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = load_manager(tmp)
+            manager.REGION_REPOSITORY.create(RegionProfile(
+                id="jp-trusted",
+                name="Japan trusted",
+                country_codes=["JP"],
+                min_quality_score=70,
+            ))
+            manager.write_nodes([{"id": "jp_1", "country_short": "JP", "host_name": "tokyo"}])
+
+            def fake_test(node_ids: list[str]) -> list[dict[str, object]]:
+                manager.QUALITY_REPOSITORY.save(QualityResult(
+                    node_id="jp_1", exit_ip="203.0.113.1", tcp_latency_ms=80,
+                    openvpn_success=True, handshake_ms=None, risk_provider=None,
+                    risk_score=None, risk_level=None, proxy_detected=False,
+                    datacenter_detected=False, country_match=None,
+                    checked_at="2026-07-13T00:00:00Z", score=85, label="Excellent",
+                ))
+                return [{"id": node_id, "probe_status": "available"} for node_id in node_ids]
+
+            manager.test_multiple_nodes = fake_test
+            summary = manager.check_quality_region("jp-trusted", limit=20)
+
+            self.assertEqual(summary["total_candidates"], 1)
+            self.assertEqual(summary["total_matches"], 1)
+            self.assertEqual(summary["exclusion_reasons"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

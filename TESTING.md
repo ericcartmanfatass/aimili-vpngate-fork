@@ -61,6 +61,10 @@ authoritative release signal.
   safe API error mapping: `tests/test_manager_config.py`,
   `tests/test_connection_state.py`, `tests/test_manager_threads.py`,
   `tests/test_service_runtime.py`, and `tests/test_api_errors.py`.
+- Versioned JSON/SQLite repository contracts, migration backup/rollback,
+  region quality/risk routing, and persistent provider caching:
+  `tests/test_storage_contract.py`, `tests/test_repository_facade.py`,
+  `tests/test_regions.py`, and `tests/test_scamalytics.py`.
 - Console/Web listen defaults: `tests/test_console_modules.py`,
   `tests/test_ui_config.py`, and the stage-specific tests added with network
   hardening.

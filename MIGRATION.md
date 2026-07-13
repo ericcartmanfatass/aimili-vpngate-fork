@@ -68,7 +68,10 @@ settings.json
 ui_auth.json
 ```
 
-SQLite backend 尚未作为默认存储启用。迁移到 SQLite 前，应先备份上述 JSON 文件。
+SQLite backend 尚未作为默认存储启用。首次切换到 SQLite 时，后端会在数据库目录自动创建
+`json-backup-<UTC时间>` 备份目录，并在一次 SQLite 事务中导入节点、地区、质量结果、
+settings 和黑名单。备份目录内的 `migration-summary.json` 记录每类数据的条数和 SHA-256
+校验和；任一文档校验或写入失败时，整次数据库导入会回滚，原 JSON 和备份保持不变。
 
 实验性 SQLite backend 可通过环境变量启用:
 
@@ -78,7 +81,14 @@ export SQLITE_DB_PATH=/opt/aimilivpn/data/aimilivpn.db
 ```
 
 未设置时仍保持 JSON 默认存储。`STORAGE_BACKEND` 设置为不支持的值时，启动配置会回退到 `json`。
-当前实验性 SQLite backend 覆盖节点、地区、质量结果和 settings repository；`state.json`、`ui_auth.json`、认证文件和运行时临时文件仍保持 JSON/文本文件。
+当前 SQLite backend 覆盖节点、地区、质量结果、provider 缓存、settings 和黑名单 repository；
+`state.json`、`ui_auth.json`、认证文件和运行时临时文件仍保持 JSON/文本文件。领域文档采用
+版本化 schema、条数和校验和元数据；JSON backend 将元数据写入相邻的 `*.meta` 文件，
+SQLite backend 将元数据写入 `json_documents` 表的独立列。
+
+OpenVPN 配置会先经过安全清洗，再保存到权限受限的 `configs/*.ovpn` 文件；SQLite 节点记录
+不包含配置正文。质量结果和持久 provider 缓存同样不保存第三方原始响应，公开 API 只返回
+标准化字段。
 
 ## ml 命令
 

@@ -16,9 +16,13 @@ def build_repository_runtime(ctx: object) -> None:
     ctx.region_repository = ctx.repositories.region_repository
     ctx.quality_repository = ctx.repositories.quality_repository
     ctx.settings_repository = ctx.repositories.settings_repository
+    ctx.blacklist_repository = getattr(ctx.repositories, "blacklist_repository", None)
     ctx.manager_repository_runtime = wiring.build_repository_runtime(wiring.RepositoryRuntimeWiring(
         node_repository=ctx.node_repository,
         region_repository=ctx.region_repository,
+        quality_repository=ctx.quality_repository,
+        settings_repository=ctx.settings_repository,
+        blacklist_repository=ctx.blacklist_repository,
         country_translations=vpn_utils.COUNTRY_TRANSLATIONS,
     ))
     ctx.repository_facade = ctx.manager_repository_runtime.facade
@@ -37,10 +41,11 @@ def build_repository_runtime(ctx: object) -> None:
 
 
 def build_quality_runtime(ctx: object) -> None:
+    repository_facade = ctx.manager_repository_runtime.facade()
     ctx.manager_quality_runtime = wiring.build_quality_runtime(wiring.QualityRuntimeWiring(
         app_config=ctx.app_config,
-        quality_repository=ctx.quality_repository,
-        region_repository=ctx.region_repository,
+        quality_repository=repository_facade,
+        region_repository=repository_facade,
         region_target_id=lambda target: ctx.region_target_id(target),
         read_nodes=lambda: ctx.read_nodes(),
         node_allowed=lambda node: ctx.node_matches_allowed_countries(node),
