@@ -356,7 +356,16 @@ PY
         DEPLOY_BRANCH="$DEPLOY_REF"
     fi
     validate_deploy_ref
-    if [ -d "${INSTALL_DIR}" ]; then
+    if [ -e "${INSTALL_DIR}" ] && ! git -C "${INSTALL_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        RECOVERY_DIR="/var/backups/aimilivpn/non-git-$(date -u +%Y%m%dT%H%M%SZ)"
+        mkdir -p "$(dirname "$RECOVERY_DIR")"
+        if ! mv "${INSTALL_DIR}" "$RECOVERY_DIR"; then
+            echo -e "${RED}无法安全移动非 Git 安装目录 ${INSTALL_DIR}，安装已停止。${PLAIN}" >&2
+            exit 1
+        fi
+        echo -e "${YELLOW}  -> 检测到非 Git 安装目录，已移动到 ${RECOVERY_DIR}，不会删除原文件。${PLAIN}"
+    fi
+    if git -C "${INSTALL_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         echo -e "  -> 目录 ${INSTALL_DIR} 已存在，正在安全更新本地源码..."
         cd "${INSTALL_DIR}"
         git fetch --tags origin

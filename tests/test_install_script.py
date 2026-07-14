@@ -25,6 +25,9 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("offer_initial_password_reset()", text)
         self.assertIn("handoff_to_pinned_installer()", text)
         self.assertIn("curl --proto '=https' --proto-redir '=https' --tlsv1.2", text)
+        self.assertIn('git -C "${INSTALL_DIR}" rev-parse --is-inside-work-tree', text)
+        self.assertIn('RECOVERY_DIR="/var/backups/aimilivpn/non-git-', text)
+        self.assertIn('mv "${INSTALL_DIR}" "$RECOVERY_DIR"', text)
         self.assertIn("exec /usr/bin/ml uninstall --yes", text)
 
     def test_release_builder_emits_archive_checksum_from_tag(self) -> None:
