@@ -7,11 +7,206 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;36m'
 PLAIN='\033[0m'
 
+ACTION="install"
+INSTALL_REF="${AIMILIVPN_REF:-}"
+ASSUME_YES=0
+
+show_usage() {
+    cat <<'EOF'
+AimiliVPN one-script installer and lifecycle entry
+
+Usage:
+  bash install.sh [--install|--update] [--ref vX.Y.Z|FULL_COMMIT]
+  bash install.sh --menu
+  bash install.sh --status
+  bash install.sh --web
+  bash install.sh --reset-password
+  bash install.sh --uninstall [--yes]
+
+Options:
+  --install             Install or reinstall the selected immutable version.
+  --update              Upgrade using the same safe fast-forward path.
+  --ref REF             Immutable release tag or full 40-character commit.
+  --menu                Open the interactive lifecycle menu.
+  --status              Show instance and service status.
+  --web                 Show loopback Console/Web entry URLs.
+  --reset-password      Generate and display a new Console password once.
+  --uninstall           Remove services/config while preserving source/data.
+  --yes                 Confirm non-interactive uninstall.
+  -h, --help            Show this help.
+
+Advanced data/source deletion remains available through `ml uninstall` and
+requires its separate explicit confirmation flags.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --install|--update)
+            ACTION="install"
+            ;;
+        --menu)
+            ACTION="menu"
+            ;;
+        --status)
+            ACTION="status"
+            ;;
+        --web)
+            ACTION="web"
+            ;;
+        --reset-password)
+            ACTION="reset-password"
+            ;;
+        --uninstall)
+            ACTION="uninstall"
+            ;;
+        --ref)
+            shift
+            if [ "$#" -eq 0 ]; then
+                echo "Error: --ref requires a value." >&2
+                exit 2
+            fi
+            INSTALL_REF="$1"
+            ;;
+        --yes)
+            ASSUME_YES=1
+            ;;
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        v[0-9]*|[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*)
+            if [ -n "$INSTALL_REF" ]; then
+                echo "Error: release ref was provided more than once." >&2
+                exit 2
+            fi
+            INSTALL_REF="$1"
+            ;;
+        *)
+            echo "Error: unknown argument: $1" >&2
+            show_usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
 # 1. Check root permissions
 if [ "$(id -u)" != "0" ]; then
     echo -e "${RED}错误: 必须以 root 权限运行此脚本。请使用: sudo bash $0${PLAIN}"
     exit 1
 fi
+
+INSTALL_DIR="/opt/aimilivpn"
+SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BOOTSTRAP_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+
+choose_menu_action() {
+    if [ ! -t 0 ] || [ ! -t 1 ]; then
+        echo -e "${RED}Error: --menu requires an interactive terminal.${PLAIN}" >&2
+        exit 2
+    fi
+    echo -e "${BLUE}==========================================================${PLAIN}"
+    echo -e "${BLUE}              AimiliVPN 一站式管理菜单${PLAIN}"
+    echo -e "${BLUE}==========================================================${PLAIN}"
+    echo "  1) 安装 / 升级"
+    echo "  2) 查看状态"
+    echo "  3) 查看管理入口"
+    echo "  4) 重置 Console 密码"
+    echo "  5) 卸载服务（保留源码和数据）"
+    echo "  0) 退出"
+    read -r -p "请选择操作 [0-5]: " choice
+    case "$choice" in
+        1)
+            ACTION="install"
+            read -r -p "目标固定 Tag/完整 commit（留空使用已记录版本）: " selected_ref
+            [ -n "$selected_ref" ] && INSTALL_REF="$selected_ref"
+            ;;
+        2) ACTION="status" ;;
+        3) ACTION="web" ;;
+        4) ACTION="reset-password" ;;
+        5) ACTION="uninstall" ;;
+        0) exit 0 ;;
+        *)
+            echo -e "${RED}无效选择。${PLAIN}" >&2
+            exit 2
+            ;;
+    esac
+}
+
+[ "$ACTION" = "menu" ] && choose_menu_action
+
+run_installed_action() {
+    if [ ! -x /usr/bin/ml ]; then
+        echo -e "${RED}AimiliVPN 尚未安装，无法执行操作: ${ACTION}${PLAIN}" >&2
+        exit 1
+    fi
+    case "$ACTION" in
+        status)
+            exec /usr/bin/ml status
+            ;;
+        web)
+            exec /usr/bin/ml web
+            ;;
+        reset-password)
+            if [ ! -t 1 ]; then
+                echo -e "${RED}拒绝把一次性密码输出到非交互终端。请在终端中运行 sudo ml password reset。${PLAIN}" >&2
+                exit 2
+            fi
+            exec /usr/bin/ml password reset
+            ;;
+        uninstall)
+            if [ "$ASSUME_YES" -ne 1 ]; then
+                if [ ! -t 0 ]; then
+                    echo -e "${RED}非交互卸载必须添加 --yes；默认仍保留源码和数据。${PLAIN}" >&2
+                    exit 2
+                fi
+                read -r -p "确认卸载服务和配置并保留源码/数据？请输入 uninstall: " confirmation
+                if [ "$confirmation" != "uninstall" ]; then
+                    echo "已取消卸载。"
+                    exit 0
+                fi
+            fi
+            exec /usr/bin/ml uninstall --yes
+            ;;
+    esac
+}
+
+case "$ACTION" in
+    status|web|reset-password|uninstall)
+        run_installed_action
+        ;;
+esac
+
+FRESH_INSTALL=0
+[ ! -f /etc/aimilivpn/instances.json ] && FRESH_INSTALL=1
+
+if [ -z "$INSTALL_REF" ] && [ ! -f /etc/aimilivpn/install-source.json ] && [ "${AIMILIVPN_LOCAL_DEV:-0}" != "1" ]; then
+    if [ -t 0 ]; then
+        read -r -p "请输入要安装的固定 Tag（如 v1.0.0）或完整 commit: " INSTALL_REF
+    else
+        echo -e "${RED}Error: fresh non-interactive installation requires --ref vX.Y.Z or a full commit.${PLAIN}" >&2
+        exit 2
+    fi
+fi
+
+offer_initial_password_reset() {
+    if [ "$FRESH_INSTALL" -ne 1 ] || [ ! -t 0 ] || [ ! -t 1 ]; then
+        return 0
+    fi
+    echo
+    echo -e "${YELLOW}首次登录前需要生成一个你可见的 Console 密码。${PLAIN}"
+    read -r -p "是否现在生成并仅显示一次？[Y/n]: " reset_choice
+    case "${reset_choice:-Y}" in
+        Y|y|YES|Yes|yes)
+            /usr/bin/ml password reset
+            ;;
+        *)
+            echo "稍后请在交互式终端运行: sudo ml password reset"
+            ;;
+    esac
+}
 
 # Capture the live network baseline before packages or managed services can
 # change it. Fresh installs persist these values later in network-changes.json.
@@ -53,7 +248,7 @@ echo -e "${BLUE}==========================================================${PLAI
 
 # 3. Configure GitHub Repository URL
 GITHUB_URL="https://github.com/ericcartmanfatass/aimili-vpngate-fork.git"
-DEPLOY_REF="${AIMILIVPN_REF:-}"
+DEPLOY_REF="$INSTALL_REF"
 SOURCE_METADATA="/etc/aimilivpn/install-source.json"
 
 validate_deploy_ref() {
@@ -61,9 +256,48 @@ validate_deploy_ref() {
        [[ "$DEPLOY_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
         return 0
     fi
-    echo -e "${RED}Error: AIMILIVPN_REF must be an immutable vX.Y.Z tag or full commit SHA.${PLAIN}"
+    echo -e "${RED}Error: --ref/AIMILIVPN_REF must be an immutable vX.Y.Z tag or full commit SHA.${PLAIN}"
     exit 1
 }
+
+if [ -z "$DEPLOY_REF" ] && [ -f "$SOURCE_METADATA" ]; then
+    DEPLOY_REF=$(python3 - "$SOURCE_METADATA" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("ref", ""))
+except (OSError, json.JSONDecodeError):
+    print("")
+PY
+    )
+fi
+
+handoff_to_pinned_installer() {
+    if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ] || [ -f "${INSTALL_DIR}/.local_dev" ]; then
+        return 0
+    fi
+    validate_deploy_ref
+    if ! command -v curl >/dev/null 2>&1; then
+        echo -e "${RED}Error: curl is required to obtain the pinned installer.${PLAIN}" >&2
+        exit 1
+    fi
+    handoff_script=$(mktemp /tmp/aimilivpn-install.XXXXXX.sh)
+    cleanup_handoff() {
+        rm -f "$handoff_script"
+    }
+    trap cleanup_handoff EXIT INT TERM
+    installer_url="https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/${DEPLOY_REF}/install.sh"
+    echo -e "${YELLOW}Downloading the installer pinned to ${DEPLOY_REF}...${PLAIN}"
+    if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location "$installer_url" --output "$handoff_script"; then
+        echo -e "${RED}Unable to download the pinned installer: ${installer_url}${PLAIN}" >&2
+        exit 1
+    fi
+    chmod 0700 "$handoff_script"
+    bash "$handoff_script" --update --ref "$DEPLOY_REF"
+    handoff_status=$?
+    exit "$handoff_status"
+}
+
+handoff_to_pinned_installer
 
 echo -e "\n${YELLOW}[1/4] 正在安装系统基础依赖...${PLAIN}"
 if [ "$PKG_MGR" = "apt-get" ]; then
@@ -89,9 +323,6 @@ elif [ "$PKG_MGR" = "dnf" ] || [ "$PKG_MGR" = "yum" ]; then
 fi
 
 # 4. Clone or pull the repository
-INSTALL_DIR="/opt/aimilivpn"
-SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Remote deployments use only the immutable ref validated above.
 
 write_ml_wrapper() {
@@ -182,6 +413,13 @@ PY
                 exit 1
             fi
         fi
+    fi
+    BOOTSTRAP_SHA256=$(sha256sum "$BOOTSTRAP_SCRIPT" | awk '{print $1}')
+    CHECKOUT_INSTALLER_SHA256=$(sha256sum "${INSTALL_DIR}/install.sh" | awk '{print $1}')
+    if [ "$BOOTSTRAP_SHA256" != "$CHECKOUT_INSTALLER_SHA256" ]; then
+        echo -e "${RED}Installer verification failed: the downloaded script does not match ${DEPLOY_REF}.${PLAIN}"
+        echo -e "${YELLOW}Download install.sh from the same immutable tag/commit and retry.${PLAIN}"
+        exit 1
     fi
     cd "${INSTALL_DIR}"
     TARGET_COMMIT=$(git rev-parse HEAD)
@@ -764,6 +1002,7 @@ PY
     echo -e "  * Password status:  ${YELLOW}ml password${PLAIN}"
     echo -e "  * Reset password:   ${YELLOW}sudo ml password reset${PLAIN}"
     echo -e "=========================================================="
+    offer_initial_password_reset
     echo
     exit 0
 fi

@@ -8,6 +8,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_single_script_entry_supports_install_and_lifecycle_actions(self) -> None:
+        text = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        for option in (
+            "--menu",
+            "--ref",
+            "--status",
+            "--web",
+            "--reset-password",
+            "--uninstall",
+        ):
+            self.assertIn(option, text)
+        self.assertIn("choose_menu_action()", text)
+        self.assertIn("run_installed_action()", text)
+        self.assertIn("offer_initial_password_reset()", text)
+        self.assertIn("handoff_to_pinned_installer()", text)
+        self.assertIn("curl --proto '=https' --proto-redir '=https' --tlsv1.2", text)
+        self.assertIn("exec /usr/bin/ml uninstall --yes", text)
+
     def test_release_builder_emits_archive_checksum_from_tag(self) -> None:
         text = (ROOT / "scripts" / "build-release.sh").read_text(encoding="utf-8")
 
@@ -47,10 +66,14 @@ class InstallScriptTests(unittest.TestCase):
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
 
         self.assertIn('GITHUB_URL="https://github.com/ericcartmanfatass/aimili-vpngate-fork.git"', text)
-        self.assertIn('DEPLOY_REF="${AIMILIVPN_REF:-}"', text)
+        self.assertIn('INSTALL_REF="${AIMILIVPN_REF:-}"', text)
+        self.assertIn('DEPLOY_REF="$INSTALL_REF"', text)
         self.assertIn("validate_deploy_ref()", text)
         self.assertIn('INSTALL_SHA256=$(sha256sum "${INSTALL_DIR}/install.sh"', text)
         self.assertIn('SOURCE_METADATA="/etc/aimilivpn/install-source.json"', text)
+        self.assertIn("BOOTSTRAP_SHA256", text)
+        self.assertIn("CHECKOUT_INSTALLER_SHA256", text)
+        self.assertIn('if [ "$BOOTSTRAP_SHA256" != "$CHECKOUT_INSTALLER_SHA256" ]', text)
         self.assertNotIn('GITHUB_USER="${1:', text)
 
     def test_fresh_multi_instance_install_creates_jp_only(self) -> None:

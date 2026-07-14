@@ -6,6 +6,43 @@ instance. Other countries remain absent until they appear with usable nodes in
 the latest VPNGate response and an authenticated administrator creates them
 through the Console lifecycle API.
 
+## One-script installation and management
+
+For the normal VPS flow, find a version such as `v1.0.0` on the project's
+[Releases](https://github.com/ericcartmanfatass/aimili-vpngate-fork/releases) or
+[Tags](https://github.com/ericcartmanfatass/aimili-vpngate-fork/tags) page, then
+replace `v1.0.0` below if needed and run this one line:
+
+```bash
+curl --fail --location "https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/v1.0.0/install.sh" --output /tmp/aimilivpn-install.sh && sudo bash /tmp/aimilivpn-install.sh --ref v1.0.0
+```
+
+The installer obtains dependencies, checks out the fixed repository at the
+selected tag/commit, compares its own SHA-256 with the checked-out installer,
+configures systemd, starts the initial JP instance, and offers an interactive
+first-login password reset when attached to a terminal. It never selects a
+moving branch or silently installs a different version.
+
+The same script can manage an existing installation:
+
+```bash
+sudo bash /opt/aimilivpn/install.sh --menu
+sudo bash /opt/aimilivpn/install.sh --status
+sudo bash /opt/aimilivpn/install.sh --web
+sudo bash /opt/aimilivpn/install.sh --reset-password
+sudo bash /opt/aimilivpn/install.sh --uninstall --yes
+```
+
+For an update, select install/update in the menu and enter the new immutable
+tag or full commit. The installed entry downloads that exact version's
+installer and hands control to it; the new installer then verifies itself
+against the checked-out source before changing services.
+
+The menu does not bypass lifecycle safety: fresh installation still creates JP
+only, additional countries are created from the authenticated server catalog,
+and uninstall preserves source/data. Permanent data or source deletion remains
+an advanced `ml uninstall` operation with separate confirmation flags.
+
 ## Verify before running
 
 Release assets must publish both `aimilivpn-VERSION.tar.gz` and `SHA256SUMS`.

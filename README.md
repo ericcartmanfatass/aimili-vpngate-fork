@@ -9,13 +9,9 @@ Bilingual: [中文](#中文) | [English](#english)
 
 AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN 代理网关。它以纯 Python 标准库编写，内置美观响应式的管理网页，提供智能并发测速、多路由模式、出站代理网关、实时日志等强大功能。
 
-运行环境以 Linux 为准，最低支持 CPython 3.10，参考版本为 CPython 3.12；Ubuntu 22.04/24.04 与 Python 3.10/3.12 的组合由持续集成验证。开发与回归命令见 [TESTING.md](TESTING.md)。
+本项目基于 `amilivpngate` 项目进行二次开发。
 
-### 📢 官方交流与反馈
-[![Telegram](https://img.shields.io/badge/TG交流群-arestemple-2CA5E0?style=flat-square&logo=telegram&logoColor=white)](https://t.me/arestemple)
-[![Forum](https://img.shields.io/badge/交流论坛-339936.xyz-orange?style=flat-square&logo=discourse&logoColor=white)](https://339936.xyz)
-[![YouTube](https://img.shields.io/badge/视频教程-YouTube-red?style=flat-square&logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=s-ATfXR8BpI)
-[![Email](https://img.shields.io/badge/Bug反馈-yaohunse7@gmail.com-red?style=flat-square&logo=gmail&logoColor=white)](mailto:yaohunse7@gmail.com)
+运行环境以 Linux 为准，最低支持 CPython 3.10，参考版本为 CPython 3.12；Ubuntu 22.04/24.04 与 Python 3.10/3.12 的组合由持续集成验证。开发与回归命令见 [TESTING.md](TESTING.md)。
 
 ---
 
@@ -24,9 +20,29 @@ AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN
 在您的 Linux VPS 上以 root 用户执行以下对应命令：
 
 #### 🌟 正式稳定版本（固定 Tag）
-Download a pinned release, verify its checksum, and then run `install.sh`
-locally. See [Verified installation and lifecycle operations](docs/installation.md).
-Do not pipe an installer from a moving branch directly into a shell.
+先到项目的 GitHub [Releases](https://github.com/ericcartmanfatass/aimili-vpngate-fork/releases) 或 [Tags](https://github.com/ericcartmanfatass/aimili-vpngate-fork/tags) 页面查看版本号，例如 `v1.0.0`，
+然后复制下面这一行执行；如果版本不同，只需要把命令中的 `v1.0.0` 换成实际版本号：
+
+```bash
+curl --fail --location "https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/v1.0.0/install.sh" --output /tmp/aimilivpn-install.sh && sudo bash /tmp/aimilivpn-install.sh --ref v1.0.0
+```
+
+这一个命令会下载固定版本的安装器，由它自动安装依赖、检出代码、写入服务并启动 JP
+实例。脚本还会校验下载的安装器与固定版本 checkout 中的 `install.sh` 完全一致。
+不要从 `main` 下载，也不要使用 `curl | bash`。正式发布审计仍应使用
+[带 SHA-256 的发布包流程](docs/installation.md)。
+
+同一脚本还提供交互管理入口：
+
+```bash
+sudo bash /opt/aimilivpn/install.sh --menu
+```
+
+在菜单中选择安装/升级并填写新的固定 Tag 或完整 commit 时，已安装脚本会把控制权
+交给该版本自己的安装器，再执行版本检出与一致性校验。
+
+也可以直接使用 `--status`、`--web`、`--reset-password`、`--uninstall`；
+非交互卸载必须额外添加 `--yes`，并默认保留源码和数据。
 发布维护者还必须完成 [发布验收清单](docs/release-acceptance.md)，包括 Linux
 CI、迁移/回滚演练和全新 Ubuntu 主机的安装至卸载验证。
 > 💡 **安全提示**：管理网页默认只监听 `127.0.0.1`，安装日志不会输出完整安全路径。远程访问请先按 [TLS 反向代理指南](docs/reverse-proxy.md) 配置 Nginx/Caddy，再使用 `ml web` 主动查询入口。随机路径只能降低扫描噪声，不能替代密码和 HTTPS。
@@ -110,18 +126,7 @@ CI、迁移/回滚演练和全新 Ubuntu 主机的安装至卸载验证。
 
 #### 4. VPN 已成功连接，但客户端设置代理后无法上网 (无流量)
 * **原因**：部分系统启用了严格的反向路径过滤（`rp_filter`），导致策略路由的入站/出站数据包被系统误判丢弃。
-* **解决办法**：在终端输入 `ml` 命令打开交互菜单，工具会自动检测并提示您将 `rp_filter` 修复为宽松模式（值为 `2`）。
-
----
-
-### 🎁 捐赠支持项目开发
-
-如果您觉得这个项目对您有所帮助，欢迎捐赠支持我们的后续开发与维护：
-
-* **BNB (BSC / BEP20)**: `0xB6d78c42CEB0687A31B8cfEBE4b51b6eB8953C17`
-* **TRX (TRC20)**: `TSdzCW6JvsrqcppodYjhSrku4mYmDJ9pxf`
-
-感谢您的慷慨与支持！❤️
+* **解决办法**：重新运行固定版本安装脚本，或使用 `sudo bash /opt/aimilivpn/install.sh --menu` 选择安装/修复；安装器会将 `rp_filter` 设置为支持策略路由的宽松模式（值为 `2`）。
 
 ---
 
@@ -130,13 +135,9 @@ CI、迁移/回滚演练和全新 Ubuntu 主机的安装至卸载验证。
 
 AimiliVPN is a high-performance, zero-dependency VPN proxy gateway built entirely using Python's standard library. It parses official VPNGate servers, benchmarks latency, and routes traffic through a built-in dual-protocol (HTTP/SOCKS5) proxy server.
 
-Linux is the supported runtime target. CPython 3.10 is the minimum supported version and CPython 3.12 is the reference version; CI verifies Ubuntu 22.04/24.04 with Python 3.10/3.12. See [TESTING.md](TESTING.md) for development and regression commands.
+This project is a secondary development based on the `amilivpngate` project.
 
-### 📢 Community & Feedback
-- **Telegram Group**: [arestemple](https://t.me/arestemple)
-- **Discussion Forum**: [339936.xyz](https://339936.xyz)
-- **Video Tutorial**: [YouTube Guide](https://www.youtube.com/watch?v=s-ATfXR8BpI)
-- **Email Contact**: yaohunse7@gmail.com
+Linux is the supported runtime target. CPython 3.10 is the minimum supported version and CPython 3.12 is the reference version; CI verifies Ubuntu 22.04/24.04 with Python 3.10/3.12. See [TESTING.md](TESTING.md) for development and regression commands.
 
 ---
 
@@ -145,9 +146,34 @@ Linux is the supported runtime target. CPython 3.10 is the minimum supported ver
 Run the corresponding command on your Linux VPS as root:
 
 #### 🌟 Stable Release (immutable tag)
-Download a pinned release, verify its checksum, and then run `install.sh`
-locally. See [Verified installation and lifecycle operations](docs/installation.md).
-Do not pipe an installer from a moving branch directly into a shell.
+Find a version such as `v1.0.0` on the project's GitHub [Releases](https://github.com/ericcartmanfatass/aimili-vpngate-fork/releases) or [Tags](https://github.com/ericcartmanfatass/aimili-vpngate-fork/tags)
+page, then run this one-line command. Replace `v1.0.0` in both places if you
+choose another version:
+
+```bash
+curl --fail --location "https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/v1.0.0/install.sh" --output /tmp/aimilivpn-install.sh && sudo bash /tmp/aimilivpn-install.sh --ref v1.0.0
+```
+
+This command downloads the pinned installer, which installs dependencies,
+checks out the matching source, configures services, and starts the JP
+instance. The downloaded script must match the `install.sh` in the immutable
+checkout. Never fetch it from `main` or use `curl | bash`. The checksummed
+release archive remains the required path for formal release verification; see
+[Verified installation and lifecycle operations](docs/installation.md).
+
+The same installed script provides an interactive lifecycle menu:
+
+```bash
+sudo bash /opt/aimilivpn/install.sh --menu
+```
+
+When install/update is selected with a new immutable tag or full commit, the
+installed entry hands control to that version's own installer before checkout
+and consistency verification.
+
+Direct actions include `--status`, `--web`, `--reset-password`, and
+`--uninstall`; non-interactive uninstall additionally requires `--yes` and
+preserves source and data by default.
 Release maintainers must also complete the [release acceptance checklist](docs/release-acceptance.md),
 including Linux CI, migration/rollback, and a clean Ubuntu install-through-uninstall drill.
 
@@ -208,14 +234,3 @@ To prevent unauthorized scanning and abuse of the proxy port on the public inter
 #### 3. "API Domain Blocked" / Candidate nodes pool is empty (0 nodes)
 * **Reason**: The official VPNGate domain is blocked or DNS resolution failed on your VPS.
 * **Solution**: Add an HTTP/SOCKS5 upstream proxy in the settings panel (Admin -> Proxy Settings), or fix system DNS through your distribution-supported path such as `resolvectl dns`, netplan, NetworkManager, or your cloud provider console. Avoid treating direct edits to `/etc/resolv.conf` as the default fix because it is often managed by systemd-resolved.
-
----
-
-### 🎁 Donation Support
-
-If you find this project helpful, you can support its development and maintenance via donation:
-
-* **BNB (BSC / BEP20)**: `0xB6d78c42CEB0687A31B8cfEBE4b51b6eB8953C17`
-* **TRX (TRC20)**: `TSdzCW6JvsrqcppodYjhSrku4mYmDJ9pxf`
-
-Thank you for your generosity and support! ❤️
