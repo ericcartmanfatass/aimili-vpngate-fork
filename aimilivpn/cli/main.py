@@ -11,6 +11,7 @@ from .commands import (
     cmd_logs,
     cmd_nodes_list,
     cmd_password,
+    cmd_password_reset,
     cmd_port,
     cmd_quality_latest,
     cmd_quality_providers,
@@ -52,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
     password_parser = subparsers.add_parser("password", help="Show account/password status")
     _add_json_flag(password_parser)
     password_parser.set_defaults(func=cmd_password)
+    password_sub = password_parser.add_subparsers(dest="password_command")
+    password_reset = password_sub.add_parser("reset", help="Reset the Console password and show it once")
+    password_reset.set_defaults(func=cmd_password_reset)
 
     uninstall_parser = subparsers.add_parser("uninstall", help="Uninstall AimiliVPN services; preserves data by default")
     uninstall_parser.add_argument("--yes", action="store_true", help="Confirm service/unit removal")

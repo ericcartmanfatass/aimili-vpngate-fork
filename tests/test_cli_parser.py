@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aimilivpn.cli.main import main
+from aimilivpn.core.auth import verify_password
 from aimilivpn.core.models import QualityResult, RegionProfile
 from aimilivpn.core.storage import NodeRepository, QualityRepository, RegionRepository
 
@@ -78,6 +79,32 @@ class CliParserTests(unittest.TestCase):
         self.assertTrue(payload["scamalytics_configured"])
         self.assertNotIn("super-secret", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_status_uses_installed_instance_catalog_paths_and_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_dir = self.write_instances(tmp)
+            data_dir = Path(tmp) / "jp-data"
+            (data_dir / "state.json").write_text(json.dumps({
+                "active_openvpn_node_id": "jp-node",
+                "is_connecting": False,
+                "proxy_ok": True,
+            }), encoding="utf-8")
+
+            code, out, err = self.run_cli(
+                tmp,
+                "status",
+                "--json",
+                extra_env={"AIMILIVPN_CONFIG_DIR": str(cfg_dir)},
+            )
+
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["data_dir"], str(data_dir))
+        self.assertEqual(payload["ui"], "127.0.0.1:8787")
+        self.assertEqual(payload["local_proxy"], "127.0.0.1:7928")
+        self.assertEqual(payload["active_node"], "jp-node")
+        self.assertEqual(payload["instances"][0]["id"], "jp")
+        self.assertEqual(err, "")
 
     def test_nodes_list_filters_by_region_and_outputs_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -216,6 +243,31 @@ class CliParserTests(unittest.TestCase):
         self.assertNotIn("plain-secret", combined)
         self.assertNotIn("hash-secret", combined)
 
+    def test_password_reset_updates_hash_and_restarts_console(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_dir = self.write_instances(tmp)
+            calls: list[list[str]] = []
+
+            def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            code, out, err = self.run_cli(
+                tmp,
+                "password",
+                "reset",
+                runner=runner,
+                extra_env={"AIMILIVPN_CONFIG_DIR": str(cfg_dir)},
+            )
+            auth = json.loads((cfg_dir / "console_auth.json").read_text(encoding="utf-8"))
+
+        password = next(line.split(": ", 1)[1] for line in out.splitlines() if line.startswith("password: "))
+        self.assertEqual(code, 0)
+        self.assertTrue(verify_password(password, auth["password_hash"]))
+        self.assertNotIn("password", auth)
+        self.assertIn(["systemctl", "restart", "aimilivpn-console.service"], calls)
+        self.assertEqual(err, "")
+
     def test_uninstall_requires_explicit_yes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             code, out, err = self.run_cli(tmp, "uninstall")
@@ -309,6 +361,42 @@ class CliParserTests(unittest.TestCase):
             self.assertEqual(sysctl_file.read_text(encoding="utf-8"), "net.ipv4.conf.all.rp_filter = 1\n")
             self.assertIn(["sysctl", "--system"], calls)
             self.assertEqual(err, "")
+
+    def test_uninstall_restores_preinstall_runtime_rp_filter_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            install_dir = Path(tmp) / "opt" / "aimilivpn"
+            cfg_dir = self.write_instances(tmp, install_dir=install_dir)
+            install_dir.mkdir(parents=True, exist_ok=True)
+            sysctl_file = Path(tmp) / "sysctl.d" / "99-aimilivpn.conf"
+            sysctl_file.parent.mkdir()
+            sysctl_file.write_text("net.ipv4.conf.all.rp_filter = 2\n", encoding="utf-8")
+            (cfg_dir / "network-changes.json").write_text(json.dumps({
+                "runtime_before": {
+                    "net.ipv4.conf.all.rp_filter": 0,
+                    "net.ipv4.conf.default.rp_filter": 2,
+                }
+            }), encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            env = {
+                "AIMILIVPN_CONFIG_DIR": str(cfg_dir),
+                "AIMILIVPN_INSTALL_DIR": str(install_dir),
+                "AIMILIVPN_SYSTEMD_UNIT_DIRS": str(Path(tmp) / "missing-units"),
+                "AIMILIVPN_ML_PATH": str(Path(tmp) / "missing-ml"),
+                "AIMILIVPN_SYSCTL_FILE": str(sysctl_file),
+            }
+            code, _, err = self.run_cli(tmp, "uninstall", "--yes", runner=runner, extra_env=env)
+
+        self.assertEqual(code, 0)
+        self.assertLess(calls.index(["sysctl", "--system"]), calls.index([
+            "sysctl", "-w", "net.ipv4.conf.all.rp_filter=0"
+        ]))
+        self.assertIn(["sysctl", "-w", "net.ipv4.conf.default.rp_filter=2"], calls)
+        self.assertEqual(err, "")
 
     def test_uninstall_can_delete_data_with_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

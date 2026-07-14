@@ -13,6 +13,11 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
+# Capture the live network baseline before packages or managed services can
+# change it. Fresh installs persist these values later in network-changes.json.
+RP_FILTER_ALL_BEFORE="$(cat /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true)"
+RP_FILTER_DEFAULT_BEFORE="$(cat /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true)"
+
 # 2. Check OS distribution and set package manager
 OS_TYPE=""
 PKG_MGR=""
@@ -569,6 +574,60 @@ fi
 
 # 8. Start service
 # 8.5 Persist network parameters needed for policy routing.
+NETWORK_CHANGES_PATH="/etc/aimilivpn/network-changes.json"
+NETWORK_RECORD_EXISTED=0
+[ -f "$NETWORK_CHANGES_PATH" ] && NETWORK_RECORD_EXISTED=1
+SYSCTL_PERSISTENT=0
+[ -d "/etc/sysctl.d" ] && SYSCTL_PERSISTENT=1
+python3 - "$NETWORK_CHANGES_PATH" "$RP_FILTER_ALL_BEFORE" "$RP_FILTER_DEFAULT_BEFORE" "$NETWORK_RECORD_EXISTED" "$SYSCTL_PERSISTENT" <<'PY'
+import json, os, sys
+
+path, all_before, default_before, record_existed, persistent = sys.argv[1:]
+existing = {}
+if record_existed == "1":
+    try:
+        with open(path, encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        if isinstance(loaded, dict):
+            existing = loaded
+    except (OSError, json.JSONDecodeError):
+        pass
+
+runtime_before = existing.get("runtime_before")
+if not isinstance(runtime_before, dict):
+    runtime_before = {}
+    # A legacy installation may already have changed the live values. Do not
+    # overwrite that unknown baseline with the currently managed value.
+    if record_existed != "1":
+        for key, raw in (
+            ("net.ipv4.conf.all.rp_filter", all_before),
+            ("net.ipv4.conf.default.rp_filter", default_before),
+        ):
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value in {0, 1, 2}:
+                runtime_before[key] = value
+
+payload = {
+    "sysctl_file": "/etc/sysctl.d/99-aimilivpn.conf",
+    "backup": "/etc/aimilivpn/backups/99-aimilivpn.conf.preinstall",
+    "settings": {
+        "net.ipv4.conf.all.rp_filter": 2,
+        "net.ipv4.conf.default.rp_filter": 2,
+    },
+    "runtime_before": runtime_before,
+    "runtime_before_unavailable": record_existed == "1" and not runtime_before,
+    "persistent": persistent == "1",
+    "dns_modified": False,
+}
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+PY
 echo -e "\n正在写入持久化网络参数 (rp_filter=2 以支持策略路由)..."
 if [ -d "/etc/sysctl.d" ]; then
     mkdir -p /etc/aimilivpn/backups
@@ -581,20 +640,6 @@ net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
 EOF
     chmod 644 /etc/sysctl.d/99-aimilivpn.conf
-    python3 - <<'PY'
-import json, os
-path = "/etc/aimilivpn/network-changes.json"
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as handle:
-    json.dump({
-        "sysctl_file": "/etc/sysctl.d/99-aimilivpn.conf",
-        "backup": "/etc/aimilivpn/backups/99-aimilivpn.conf.preinstall",
-        "settings": {"net.ipv4.conf.all.rp_filter": 2, "net.ipv4.conf.default.rp_filter": 2},
-        "dns_modified": False,
-    }, handle, indent=2)
-os.chmod(tmp, 0o600)
-os.replace(tmp, path)
-PY
     sysctl -p /etc/sysctl.d/99-aimilivpn.conf >/dev/null 2>&1 || true
 else
     echo -e "${YELLOW}Warning: /etc/sysctl.d is unavailable; applying rp_filter for this boot only and leaving /etc/sysctl.conf untouched.${PLAIN}"
@@ -703,7 +748,7 @@ PY
     echo -e "  * Remote management: configure a TLS reverse proxy; see ${INSTALL_DIR}/docs/reverse-proxy.md"
     echo -e "  * Secret path is intentionally hidden from install logs; run ${YELLOW}ml web${PLAIN} when needed"
     echo -e "  * Console username: ${YELLOW}${CONSOLE_USER}${PLAIN}"
-    echo -e "  * Console password: ${YELLOW}set; use the Web UI to change it${PLAIN}"
+    echo -e "  * Console password: run ${YELLOW}sudo ml password reset${PLAIN} to generate and display a one-time value"
     echo -e " --------------------------------------------------------"
     python3 - <<'PY'
 import json
@@ -717,6 +762,7 @@ PY
     echo -e "  * Restart services: ${YELLOW}ml restart${PLAIN}"
     echo -e "  * Web URLs:         ${YELLOW}ml web${PLAIN}"
     echo -e "  * Password status:  ${YELLOW}ml password${PLAIN}"
+    echo -e "  * Reset password:   ${YELLOW}sudo ml password reset${PLAIN}"
     echo -e "=========================================================="
     echo
     exit 0

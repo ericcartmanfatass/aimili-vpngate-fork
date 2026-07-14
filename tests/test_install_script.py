@@ -91,6 +91,7 @@ class InstallScriptTests(unittest.TestCase):
         self.assertNotIn("网页管理密码:  ${YELLOW}${PASSWORD}", text)
         self.assertIn("Password status:", text)
         self.assertIn("ml password", text)
+        self.assertIn("sudo ml password reset", text)
 
     def test_completion_output_uses_current_simple_cli_commands(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
@@ -125,6 +126,9 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("sysctl -w net.ipv4.conf.all.rp_filter=2", text)
         self.assertIn("99-aimilivpn.conf.preinstall", text)
         self.assertIn("network-changes.json", text)
+        self.assertIn("RP_FILTER_ALL_BEFORE", text)
+        self.assertIn('"runtime_before": runtime_before', text)
+        self.assertLess(text.index("RP_FILTER_ALL_BEFORE="), text.index('systemctl enable --now "aimilivpn@'))
         self.assertIn('"dns_modified": False', text)
         self.assertIn("leaving /etc/sysctl.conf untouched", text)
         self.assertNotIn(">> /etc/sysctl.conf", text)

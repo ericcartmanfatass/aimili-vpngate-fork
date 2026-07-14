@@ -41,6 +41,7 @@ class CliCompatibilityTests(unittest.TestCase):
                 "quality",
             ],
         )
+        self.assertEqual(list(_subcommands(commands["password"])), ["reset"])
         self.assertEqual(list(_subcommands(commands["nodes"])), ["list"])
         self.assertEqual(list(_subcommands(commands["regions"])), ["list"])
         self.assertEqual(list(_subcommands(commands["quality"])), ["providers", "latest"])

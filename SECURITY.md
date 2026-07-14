@@ -42,6 +42,9 @@ Session token 和随机密码由 Python `secrets` 生成。
 
 随机 secret path 只用于降低无关扫描噪声，不是认证或传输安全措施。普通启动日志不应输出完整 secret-path URL；管理员可在需要时通过 `ml web` 主动查询。
 
+首次访问 Console 时，安装日志不会交付明文密码。管理员应在交互式终端中主动运行
+`sudo ml password reset`；新密码只在该终端显示一次，服务端认证文件仍只保存哈希。
+
 ## OpenVPN 配置
 
 从 VPNGate 获取的 `.ovpn` 内容被视为不可信输入。写入磁盘前应经过 sanitizer，拒绝高风险指令，例如脚本钩子、plugin 和验证回调类配置。

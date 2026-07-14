@@ -33,6 +33,22 @@ It records the repository, ref, resolved commit, and installer SHA-256 in
 `AIMILIVPN_LOCAL_DEV=1` is a development-only escape hatch for testing a local
 checkout; it intentionally skips release-ref verification and source metadata.
 
+## Initial Console access
+
+The installer never writes a plaintext password into the authentication JSON or
+prints one into installation logs. After a fresh install, run the following as
+root from an interactive terminal:
+
+```bash
+sudo ml password reset
+```
+
+The command generates a strong random Console password, atomically replaces the
+stored hash, restarts `aimilivpn-console.service`, and prints the new password
+exactly once to that terminal. Save it immediately, then use `ml web` to obtain
+the loopback Console URL. `ml password` reports password status without
+revealing any credential.
+
 ## Updates and rollback
 
 Re-run a verified newer release with its tag in `AIMILIVPN_REF`. The default
@@ -96,12 +112,14 @@ list changes. The Console environment and instance API token are also mode 0600.
 
 ## Network and uninstall behavior
 
-The installer does not modify DNS or `/etc/resolv.conf`. It records its
-`rp_filter=2` settings in `/etc/aimilivpn/network-changes.json`. If an existing
+The installer does not modify DNS or `/etc/resolv.conf`. Before applying
+`rp_filter=2`, it records the original live values in
+`/etc/aimilivpn/network-changes.json`. If an existing
 `/etc/sysctl.d/99-aimilivpn.conf` was present, it is backed up before replacement.
 
 `ml uninstall --yes` stops/disables services, removes instance-owned policy
 tables and configuration, restores the pre-install sysctl file when available
-(otherwise removes the AimiliVPN file), and reapplies sysctl settings. Instance
+(otherwise removes the AimiliVPN file), reapplies sysctl settings, and finally
+restores the recorded pre-install live `rp_filter` values. Instance
 data and source are retained by default. Data/source deletion each requires its
 own explicit confirmation flags.

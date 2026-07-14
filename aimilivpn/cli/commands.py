@@ -4,10 +4,12 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
+from aimilivpn.core.auth import generate_password, hash_password, utc_now_iso
 from aimilivpn.core.config import AppConfig, load_config
 from aimilivpn.core.models import QualityResult
 from aimilivpn.core.regions import match_node
@@ -46,18 +48,18 @@ class CliContext:
 
 
 def cmd_status(args: Any, ctx: CliContext, stdout: TextIO) -> int:
-    state = ctx.store.read(ctx.config.state_file, {})
-    if not isinstance(state, dict):
-        state = {}
+    instances = instance_status_rows(ctx)
+    primary = instances[0] if instances else legacy_status_row(ctx)
     services = service_status_rows(ctx)
     payload = {
-        "data_dir": str(ctx.config.data_dir),
-        "ui": f"{ctx.config.ui_host}:{ctx.config.ui_port}",
-        "local_proxy": f"{ctx.config.local_proxy_host}:{ctx.config.local_proxy_port}",
-        "active_node": state.get("active_openvpn_node_id") or "",
-        "connecting": bool(state.get("is_connecting")),
-        "proxy_ok": state.get("proxy_ok"),
+        "data_dir": primary["data_dir"],
+        "ui": primary["ui"],
+        "local_proxy": primary["local_proxy"],
+        "active_node": primary["active_node"],
+        "connecting": primary["connecting"],
+        "proxy_ok": primary["proxy_ok"],
         "scamalytics_configured": ctx.config.scamalytics_configured,
+        "instances": instances,
         "services": services,
     }
     if args.json:
@@ -68,6 +70,13 @@ def cmd_status(args: Any, ctx: CliContext, stdout: TextIO) -> int:
         stdout.write(f"local_proxy: {payload['local_proxy']}\n")
         stdout.write(f"active_node: {payload['active_node']}\n")
         stdout.write(f"scamalytics_configured: {payload['scamalytics_configured']}\n")
+        if instances:
+            stdout.write("\ninstances:\n")
+            _write_table(
+                instances,
+                ["id", "country", "data_dir", "ui", "local_proxy", "active_node", "connecting", "proxy_ok"],
+                stdout,
+            )
         stdout.write("\nservices:\n")
         _write_table(services, ["service", "state"], stdout)
     return 0
@@ -134,6 +143,30 @@ def cmd_password(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     return 0
 
 
+def cmd_password_reset(args: Any, ctx: CliContext, stdout: TextIO) -> int:
+    auth_path = ctx.system_config_dir / "console_auth.json"
+    auth = read_json_file(auth_path, None)
+    if not isinstance(auth, dict) or not auth_path.exists():
+        raise CliError("console authentication config not found")
+
+    password = generate_password(24)
+    updated = dict(auth)
+    updated.pop("password", None)
+    updated["password_hash"] = hash_password(password)
+    updated["updated_at"] = utc_now_iso()
+    try:
+        write_private_json(auth_path, updated)
+    except OSError as exc:
+        raise CliError("unable to update Console password; run this command as root") from exc
+
+    result = ctx.runner(["systemctl", "restart", "aimilivpn-console.service"])
+    stdout.write("Console password reset. Save this one-time value now; it will not be shown again.\n")
+    stdout.write(f"password: {password}\n")
+    if result.returncode != 0:
+        raise CliError("password was updated but Console restart failed; restart aimilivpn-console.service manually")
+    return 0
+
+
 def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if not args.yes:
         raise CliError("uninstall requires --yes; data and source are preserved by default")
@@ -143,6 +176,7 @@ def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
         raise CliError("--delete-source requires --confirm-delete-source")
 
     instances = load_instances(ctx)
+    runtime_sysctls = runtime_sysctls_for_uninstall(ctx)
     services = _unique(discover_services(ctx) + ["aimilivpn.service"])
     for service in services:
         ctx.runner(["systemctl", "stop", service])
@@ -169,6 +203,8 @@ def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
         sysctl_changed = True
     if sysctl_changed:
         ctx.runner(["sysctl", "--system"])
+    for key, value in runtime_sysctls.items():
+        ctx.runner(["sysctl", "-w", f"{key}={value}"])
     if safe_remove_path(ctx.system_config_dir, recursive=True):
         removed.append(str(ctx.system_config_dir))
     ml_path = Path(os.environ.get("AIMILIVPN_ML_PATH", "/usr/bin/ml"))
@@ -296,6 +332,67 @@ def load_instances(ctx: CliContext) -> list[dict[str, Any]]:
     if isinstance(raw, dict) and isinstance(raw.get("instances"), list):
         return [dict(item) for item in raw["instances"] if isinstance(item, dict)]
     return []
+
+
+def instance_status_rows(ctx: CliContext) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in load_instances(ctx):
+        data_dir_text = str(item.get("data_dir") or "").strip()
+        data_dir = Path(data_dir_text) if data_dir_text else None
+        state = ctx.store.read(data_dir / "state.json", {}) if data_dir is not None else {}
+        if not isinstance(state, dict):
+            state = {}
+        ui_host = str(item.get("ui_host") or "127.0.0.1")
+        proxy_host = str(item.get("proxy_host") or "127.0.0.1")
+        rows.append({
+            "id": str(item.get("id") or ""),
+            "country": str(item.get("country") or ""),
+            "data_dir": data_dir_text,
+            "ui": f"{ui_host}:{item.get('ui_port') or ''}",
+            "local_proxy": f"{proxy_host}:{item.get('proxy_port') or ''}",
+            "active_node": state.get("active_openvpn_node_id") or "",
+            "connecting": bool(state.get("is_connecting")),
+            "proxy_ok": state.get("proxy_ok"),
+        })
+    return rows
+
+
+def legacy_status_row(ctx: CliContext) -> dict[str, Any]:
+    state = ctx.store.read(ctx.config.state_file, {})
+    if not isinstance(state, dict):
+        state = {}
+    return {
+        "id": "web",
+        "country": "",
+        "data_dir": str(ctx.config.data_dir),
+        "ui": f"{ctx.config.ui_host}:{ctx.config.ui_port}",
+        "local_proxy": f"{ctx.config.local_proxy_host}:{ctx.config.local_proxy_port}",
+        "active_node": state.get("active_openvpn_node_id") or "",
+        "connecting": bool(state.get("is_connecting")),
+        "proxy_ok": state.get("proxy_ok"),
+    }
+
+
+def runtime_sysctls_for_uninstall(ctx: CliContext) -> dict[str, int]:
+    payload = read_json_file(ctx.system_config_dir / "network-changes.json", {})
+    runtime_before = payload.get("runtime_before") if isinstance(payload, dict) else None
+    if not isinstance(runtime_before, dict):
+        return {}
+    allowed = {
+        "net.ipv4.conf.all.rp_filter",
+        "net.ipv4.conf.default.rp_filter",
+    }
+    restored: dict[str, int] = {}
+    for key, value in runtime_before.items():
+        if key not in allowed or isinstance(value, bool):
+            continue
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            continue
+        if normalized in {0, 1, 2}:
+            restored[key] = normalized
+    return restored
 
 
 def service_status_rows(ctx: CliContext) -> list[dict[str, str]]:
@@ -523,6 +620,23 @@ def read_json_file(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default
+
+
+def write_private_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        temporary.chmod(0o600)
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _unique(items: list[str]) -> list[str]:
