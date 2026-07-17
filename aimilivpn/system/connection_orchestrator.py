@@ -58,6 +58,8 @@ class ConnectionOrchestrator:
     node_test_workers: Callable[[], int]
     exclude_datacenter: Callable[[], bool]
     set_connection_phase: Callable[[ConnectionPhase | str, str, str], None] | None = None
+    wait_for_stop: Callable[[float], bool] | None = None
+    instance_retry_backoff_seconds: tuple[int, ...] = (60, 300, 900, 1800)
 
     def transition(self, phase: ConnectionPhase, message: str = "", node_id: str = "") -> None:
         if self.set_connection_phase is not None:

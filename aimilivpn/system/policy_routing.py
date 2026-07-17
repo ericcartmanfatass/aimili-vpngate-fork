@@ -33,27 +33,27 @@ class PolicyRoutingFacade:
                     except Exception:
                         pass
                 self.print_line(
-                    f"[policy_routing] Enabled policy routing for interface {interface} "
-                    f"table {table} (attempt {attempt} success)"
+                    f"[策略路由] 已为接口 {interface} 启用策略路由，路由表 {table} "
+                    f"（第 {attempt} 次尝试成功）"
                 )
                 success = True
                 break
             except Exception as exc:
                 last_error = exc
                 kind = routing_core.classify_route_error(exc)
-                self.print_line(f"[policy_routing] Attempt {attempt} failed to enable policy routing ({kind}): {exc}")
+                self.print_line(f"[策略路由] 第 {attempt} 次启用失败（{kind}）: {exc}")
                 self.sleep(1)
 
         if not success:
             error = routing_core.format_route_error(last_error, table=table)
-            self.print_line(f"[??????] [???? 3003] {error}")
+            self.print_line(f"[策略路由错误] [错误代码 3003] {error}")
             if self.log_line:
-                self.log_line("ERROR", f"[???? 3003] {error}")
+                self.log_line("ERROR", f"[错误代码 3003] {error}")
 
     def cleanup(self, table: str) -> None:
         try:
             for command in routing_core.cleanup_route_commands(table):
                 self.run_command(command, capture_output=True, timeout=2)
-            self.print_line(f"[policy_routing] Cleared policy routing table {table}")
+            self.print_line(f"[策略路由] 已清理路由表 {table}")
         except Exception:
             pass

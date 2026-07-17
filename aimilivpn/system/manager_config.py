@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from aimilivpn.core.config import AppConfig, env_bool, env_int, env_text, load_config
+from aimilivpn.core.global_config import (
+    DEFAULT_INSTANCE_RETRY_BACKOFF,
+    global_config_paths,
+    global_settings_for_runtime,
+    resolve_global_config_dir,
+)
 from aimilivpn.system.runtime_paths import RuntimePaths, build_runtime_paths
 
 
@@ -96,6 +102,9 @@ class ManagerRuntimeConfig:
     allow_insecure_fetch: bool
     storage_backend: str
     sqlite_db_path: Path
+    global_config_dir: Path = Path("config")
+    global_nodes_file: Path = Path("global/nodes.json")
+    instance_retry_backoff_seconds: tuple[int, ...] = DEFAULT_INSTANCE_RETRY_BACKOFF
 
 
 @dataclass(frozen=True)
@@ -131,6 +140,27 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
     resolved_root = root_dir.resolve()
     app_config = load_config(resolved_root)
     runtime_paths = build_runtime_paths(resolved_root, str(app_config.data_dir))
+    global_config_dir = resolve_global_config_dir(resolved_root)
+    global_settings_path, _ = global_config_paths(global_config_dir)
+    instance_retry_backoff_seconds = DEFAULT_INSTANCE_RETRY_BACKOFF
+    if global_settings_path.exists():
+        global_settings = global_settings_for_runtime(global_config_dir)
+        raw_backoff = global_settings.get("instance_retry_backoff_seconds")
+        if isinstance(raw_backoff, (list, tuple)) and raw_backoff:
+            instance_retry_backoff_seconds = tuple(
+                max(1, bounded_int(item, 1, 1, 86400 * 7)) for item in raw_backoff
+            )
+        app_config = replace(
+            app_config,
+            api_url=str(global_settings.get("vpn_gate_api_url") or app_config.api_url),
+            scamalytics_enabled=bool(global_settings.get("scamalytics_enabled", False)),
+            scamalytics_username=str(global_settings.get("scamalytics_username") or ""),
+            scamalytics_api_key=str(global_settings.get("scamalytics_api_key") or ""),
+            scamalytics_timeout_seconds=int(global_settings.get("scamalytics_timeout_seconds") or app_config.scamalytics_timeout_seconds),
+            scamalytics_cache_ttl_seconds=int(global_settings.get("scamalytics_cache_ttl_days") or 7) * 86400,
+            scamalytics_rate_limit_per_minute=int(global_settings.get("scamalytics_rate_limit_per_minute") or app_config.scamalytics_rate_limit_per_minute),
+            scamalytics_api_url=str(global_settings.get("scamalytics_api_url") or app_config.scamalytics_api_url),
+        )
     target_valid_nodes = env_int("TARGET_VALID_NODES", 3, 1)
     sqlite_env = (os.environ.get("SQLITE_DB_PATH") or "").strip()
     sqlite_db_path = Path(sqlite_env).expanduser() if sqlite_env else runtime_paths.data_dir / "aimilivpn.db"
@@ -167,4 +197,10 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
         allow_insecure_fetch=app_config.allow_insecure_fetch,
         storage_backend=env_choice("STORAGE_BACKEND", "json", {"json", "sqlite"}),
         sqlite_db_path=sqlite_db_path.resolve(),
+        global_config_dir=global_config_dir,
+        global_nodes_file=Path(
+            (os.environ.get("AIMILIVPN_GLOBAL_NODES_FILE") or "").strip()
+            or str(runtime_paths.data_dir.parent / "global" / "nodes.json")
+        ).expanduser().resolve(),
+        instance_retry_backoff_seconds=instance_retry_backoff_seconds,
     )

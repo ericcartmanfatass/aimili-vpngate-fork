@@ -59,10 +59,11 @@ class AppConfig:
     scamalytics_cache_ttl_seconds: int = 86400
     scamalytics_rate_limit_per_minute: int = 30
     scamalytics_api_url: str = "https://api11.scamalytics.com/{username}/"
+    scamalytics_enabled: bool = True
 
     @property
     def scamalytics_configured(self) -> bool:
-        return bool(self.scamalytics_username and self.scamalytics_api_key)
+        return bool(self.scamalytics_enabled and self.scamalytics_username and self.scamalytics_api_key)
 
     @property
     def blacklist_file(self) -> Path:
@@ -117,4 +118,5 @@ def load_config(root_dir: Path | None = None) -> AppConfig:
         scamalytics_cache_ttl_seconds=env_int("SCAMALYTICS_CACHE_TTL_SECONDS", 86400, 60),
         scamalytics_rate_limit_per_minute=env_int("SCAMALYTICS_RATE_LIMIT_PER_MINUTE", 30, 1),
         scamalytics_api_url=env_text("SCAMALYTICS_API_URL", "https://api11.scamalytics.com/{username}/"),
+        scamalytics_enabled=env_bool("SCAMALYTICS_ENABLED", True),
     )

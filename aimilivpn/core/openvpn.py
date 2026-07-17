@@ -132,9 +132,9 @@ def run_openvpn_until_ready(
             cwd=str(cwd),
         )
     except FileNotFoundError:
-        return False, "[ERR_OVPN_CMD_NOT_FOUND] openvpn command was not found", None
+        return False, "[ERR_OVPN_CMD_NOT_FOUND] 未找到 openvpn 命令", None
     except OSError as exc:
-        return False, f"[ERR_OVPN_START_FAILED] openvpn failed to start: {exc}", None
+        return False, f"[ERR_OVPN_START_FAILED] openvpn 启动失败: {exc}", None
 
     lines: queue.Queue[str | None] = queue.Queue()
     startup_done = [False]
@@ -162,7 +162,7 @@ def run_openvpn_until_ready(
     started = time.time()
     tail: list[str] = []
     ok = False
-    message = "OpenVPN did not complete initialization."
+    message = "OpenVPN 未完成初始化。"
 
     while time.time() - started < timeout:
         try:
@@ -183,7 +183,7 @@ def run_openvpn_until_ready(
             status_callback(lower)
         if "initialization sequence completed" in lower:
             ok = True
-            message = f"OpenVPN connected in {int((time.time() - started) * 1000)} ms."
+            message = f"OpenVPN 已连接，用时 {int((time.time() - started) * 1000)} ms。"
             break
         if "auth_failed" in lower or "authentication failed" in lower:
             message = "AUTH_FAILED"
@@ -192,7 +192,7 @@ def run_openvpn_until_ready(
             message = line[-220:]
             break
     else:
-        message = f"OpenVPN timeout after {timeout}s."
+        message = f"OpenVPN 在 {timeout} 秒后检测超时。"
 
     for line_str in openvpn_logs:
         emit_log(line_str)
@@ -200,7 +200,7 @@ def run_openvpn_until_ready(
     if not ok and diagnose_failure:
         err_code, diag_msg = diagnose_failure(tail)
         tail_text = tail[-1][-100:] if tail else "none"
-        message = f"[error code {err_code}] {diag_msg} (tail: {tail_text})"
+        message = f"[错误代码 {err_code}] {diag_msg}（日志末尾: {tail_text}）"
 
     startup_done[0] = True
     if not keep_alive or not ok:

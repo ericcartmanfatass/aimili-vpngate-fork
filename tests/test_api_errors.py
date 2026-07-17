@@ -28,7 +28,7 @@ class ApiErrorTests(unittest.TestCase):
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.INTERNAL_SERVER_ERROR)
         self.assertEqual(payload["error_code"], "node_operation_failed")
-        self.assertEqual(payload["error"], "node operation failed")
+        self.assertEqual(payload["error"], "节点操作失败")
         self.assertNotIn("database password", str(payload))
 
 

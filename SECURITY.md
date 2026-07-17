@@ -53,7 +53,15 @@ API、日志和 UI 不应展示原始 `.ovpn` 内容或私钥块。
 
 ## 第三方 API key
 
-Scamalytics 等第三方 API key 只能保存在服务端环境变量或服务端配置中。前端 API 只允许返回“是否已配置”、timeout、cache TTL 和 rate limit 等状态，不得返回 key 或 username。
+Scamalytics 等第三方 API key 只能保存在服务端的独立私有 secrets 文件
+（`global_secrets.json`）或受控环境变量中，不能写入全局 SQLite、普通设置文件、日志、
+前端响应或备份。前端 API 只返回是否已配置和掩码；用户名可作为配置项显示，但不得与
+API key 一起作为秘密下发。保存新 key 时沿用旧 key，除非管理员明确提交新值。
+
+v1.0.2 的全局配置文件和全局数据库应保持 `0600`。完整业务备份只允许包含节点元数据、
+质量结果、黑名单、任务历史和非敏感设置；OpenVPN 正文、原始第三方响应、密码、Session、
+令牌、API key 和系统资源分配字段必须被排除。JSON backend 只是兼容/回退路径，不改变上述
+敏感字段边界。
 
 ## DNS 和系统参数
 

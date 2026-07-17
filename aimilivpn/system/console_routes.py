@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 from aimilivpn.core.auth import generate_session_token, verify_password, verify_username
+from aimilivpn.core.global_config import APP_VERSION
 from aimilivpn.system.console_backend import backend_request, service_action, service_active, systemctl
 from aimilivpn.system.console_config import (
     CONFIG_DIR,
@@ -38,6 +39,7 @@ from aimilivpn.system.console_instances import (
     stripped_nodes as build_stripped_nodes,
 )
 from aimilivpn.system.console_security import LoginAttemptLimiter
+from aimilivpn.system.global_console import GlobalConsoleRuntime
 from aimilivpn.web.auth_routes import parse_cookie_header, redact_secret_path
 from aimilivpn.web.http_utils import HttpResponseMixin, InvalidRequestBody, RequestBodyTooLarge
 from aimilivpn.web.proxy_trust import (
@@ -64,6 +66,18 @@ instance_lifecycle = InstanceLifecycle(
     resource_probe=detect_host_resource_conflicts,
     country_catalog=load_available_country_catalog,
 )
+_global_console_runtime: GlobalConsoleRuntime | None = None
+
+
+def global_console_runtime() -> GlobalConsoleRuntime:
+    global _global_console_runtime
+    if (
+        _global_console_runtime is None
+        or _global_console_runtime.config_dir != CONFIG_DIR
+        or _global_console_runtime.install_dir != INSTALL_DIR
+    ):
+        _global_console_runtime = GlobalConsoleRuntime.build(CONFIG_DIR, INSTALL_DIR)
+    return _global_console_runtime
 
 LOGIN_HTML = """<!doctype html><html><body><h1>AimiliVPN Console Login</h1></body></html>"""
 INDEX_HTML = """<!doctype html><html><body><h1>AimiliVPN Console</h1></body></html>"""
@@ -182,7 +196,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             self._handle_get()
         except Exception as exc:
             print(f"[console audit] GET request failed: {type(exc).__name__}", flush=True)
-            self.safe_error_json({"error": "internal server error"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.safe_error_json({"error": "服务器内部错误"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _handle_get(self) -> None:
         path = self.effective_path()
@@ -192,7 +206,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 self.send_bytes(get_console_login_html(LOGIN_HTML).encode("utf-8"), "text/html; charset=utf-8")
             else:
-                self.send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+                self.send_json({"error": "未授权"}, HTTPStatus.UNAUTHORIZED)
             return
         if path in ("/", "/index.html"):
             self.send_bytes(get_console_index_html(INDEX_HTML).encode("utf-8"), "text/html; charset=utf-8")
@@ -201,24 +215,44 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             try:
                 asset = get_static_asset(asset_path)
             except ValueError:
-                self.send_json({"error": "invalid static path"}, HTTPStatus.BAD_REQUEST)
+                self.send_json({"error": "静态资源路径无效"}, HTTPStatus.BAD_REQUEST)
                 return
             if asset is None:
-                self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
                 return
             self.send_bytes(asset, guess_content_type(asset_path))
         elif path == "/api/instances":
             self.send_json({"instances": [instance_state(inst) for inst in load_instances()]})
         elif path == "/api/instance-catalog":
             self.send_json({"catalog": instance_lifecycle.catalog()})
+        elif path == "/api/global/settings":
+            self.send_json({"settings": global_console_runtime().settings()})
+        elif path in {"/api/global/tasks", "/api/global/status"}:
+            self.send_json({"task": global_console_runtime().task_status()})
+        elif path == "/api/global/nodes":
+            self.send_json(global_console_runtime().nodes())
+        elif path == "/api/global/logs":
+            self.send_json(global_console_runtime().logs_security())
+        elif path == "/api/global/backup":
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            backup_type = str((query.get("type") or ["config"])[0] or "config")
+            payload = global_console_runtime().backup_payload(backup_type)
+            body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="aimilivpn-v{APP_VERSION}-{backup_type}.json"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
         elif path.startswith("/api/instances/"):
             parts = path.strip("/").split("/")
             if len(parts) < 3:
-                self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
                 return
             inst = instance_by_id(parts[2])
             if not inst:
-                self.send_json({"error": "unknown instance"}, HTTPStatus.NOT_FOUND)
+                self.send_json({"error": "未找到实例"}, HTTPStatus.NOT_FOUND)
                 return
             action = parts[3] if len(parts) > 3 else "status"
             if action == "status":
@@ -230,22 +264,22 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             elif action == "gateway_status":
                 self.send_json(backend_request(inst, "/api/gateway_status"))
             else:
-                self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
         else:
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
         try:
             self._handle_post()
         except RequestBodyTooLarge:
-            self.safe_error_json({"error": "request body too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            self.safe_error_json({"error": "请求内容过大"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
         except (InvalidRequestBody, json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            self.safe_error_json({"error": "invalid request body"}, HTTPStatus.BAD_REQUEST)
+            self.safe_error_json({"error": "请求内容无效"}, HTTPStatus.BAD_REQUEST)
         except (socket.timeout, TimeoutError):
-            self.safe_error_json({"error": "request timeout"}, HTTPStatus.REQUEST_TIMEOUT)
+            self.safe_error_json({"error": "请求超时"}, HTTPStatus.REQUEST_TIMEOUT)
         except Exception as exc:
             print(f"[console audit] POST request failed: {type(exc).__name__}", flush=True)
-            self.safe_error_json({"error": "internal server error"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.safe_error_json({"error": "服务器内部错误"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _handle_post(self) -> None:
         path = self.effective_path()
@@ -255,7 +289,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             client_ip = self.client_ip()
             if not login_limiter.allow(client_ip):
                 print("[console audit] login rate limit exceeded", flush=True)
-                self.send_json({"ok": False, "error": "login failed"}, HTTPStatus.TOO_MANY_REQUESTS)
+                self.send_json({"ok": False, "error": "登录失败"}, HTTPStatus.TOO_MANY_REQUESTS)
                 return
             payload = self.body_json()
             try:
@@ -285,7 +319,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             else:
-                self.send_json({"ok": False, "error": "login failed"}, HTTPStatus.FORBIDDEN)
+                self.send_json({"ok": False, "error": "登录失败"}, HTTPStatus.FORBIDDEN)
             return
         if path == "/api/logout":
             token = self.session_token()
@@ -301,9 +335,38 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             self.end_headers()
             return
         if not self.authorized():
-            self.send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            self.send_json({"error": "未授权"}, HTTPStatus.UNAUTHORIZED)
             return
         print(f"[console audit] mutation path={path} client={self.client_ip()}", flush=True)
+        if path == "/api/global/settings":
+            payload = self.body_json()
+            self.send_json({"ok": True, "settings": global_console_runtime().save_settings(payload)})
+            return
+        if path == "/api/global/refresh":
+            self.send_json(global_console_runtime().refresh())
+            return
+        if path == "/api/global/scamalytics/test":
+            result = global_console_runtime().test_scamalytics()
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_GATEWAY)
+            return
+        if path == "/api/global/backup/preview":
+            payload = self.body_json()
+            candidate = payload.get("backup", payload)
+            if not isinstance(candidate, dict):
+                raise ValueError("backup must be an object")
+            self.send_json({"ok": True, "preview": global_console_runtime().preview_restore(candidate)})
+            return
+        if path == "/api/global/backup/restore":
+            payload = self.body_json()
+            candidate = payload.get("backup")
+            if not isinstance(candidate, dict):
+                raise ValueError("backup must be an object")
+            result = global_console_runtime().restore(
+                candidate,
+                confirmed=bool(payload.get("confirmed", False)),
+            )
+            self.send_json(result)
+            return
         if path in {"/api/instances", "/api/instances/validate"}:
             payload = self.body_json()
             try:
@@ -326,15 +389,15 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
                 )
             return
         if not path.startswith("/api/instances/"):
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
             return
         parts = path.strip("/").split("/")
         if len(parts) < 4:
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
             return
         inst = instance_by_id(parts[2])
         if not inst:
-            self.send_json({"error": "unknown instance"}, HTTPStatus.NOT_FOUND)
+            self.send_json({"error": "未找到实例"}, HTTPStatus.NOT_FOUND)
             return
         action = parts[3]
         payload = self.body_json()
@@ -345,29 +408,29 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         elif action in {"connect", "disconnect", "refresh_nodes", "test_proxy", "test_node"}:
             self.send_json(backend_request(inst, f"/api/{action}", method="POST", payload=payload))
         else:
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
 
     def do_DELETE(self) -> None:
         try:
             self._handle_delete()
         except RequestBodyTooLarge:
-            self.safe_error_json({"error": "request body too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            self.safe_error_json({"error": "请求内容过大"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
         except (InvalidRequestBody, json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            self.safe_error_json({"error": "invalid request body"}, HTTPStatus.BAD_REQUEST)
+            self.safe_error_json({"error": "请求内容无效"}, HTTPStatus.BAD_REQUEST)
         except Exception as exc:
             print(f"[console audit] DELETE request failed: {type(exc).__name__}", flush=True)
-            self.safe_error_json({"error": "internal server error"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.safe_error_json({"error": "服务器内部错误"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _handle_delete(self) -> None:
         path = self.effective_path()
         if not path:
             return
         if not self.authorized():
-            self.send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            self.send_json({"error": "未授权"}, HTTPStatus.UNAUTHORIZED)
             return
         parts = path.strip("/").split("/")
         if len(parts) != 3 or parts[:2] != ["api", "instances"]:
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
             return
         payload = self.body_json()
         instance_id = parts[2]

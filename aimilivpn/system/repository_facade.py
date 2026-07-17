@@ -159,4 +159,4 @@ class RepositoryFacade:
         if routing_mode != "fixed_region" or not target:
             return
         if str(target).strip().startswith("region:") and self.get_region_routing_target(target) is None:
-            raise ValueError("region not found")
+            raise ValueError("地区不存在")

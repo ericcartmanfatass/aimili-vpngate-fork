@@ -260,7 +260,7 @@ class ConsoleBackendTests(unittest.TestCase):
                 "aimilivpn@jp.service", "restart", instance_id="jp"
             )
 
-        self.assertEqual(result, {"ok": False, "error": "service operation failed"})
+        self.assertEqual(result, {"ok": False, "error": "服务操作失败"})
         self.assertNotIn("sensitive detail", str(result))
 
     def test_backend_request_does_not_echo_connection_details(self) -> None:

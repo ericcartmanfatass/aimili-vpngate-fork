@@ -13,6 +13,14 @@ AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN
 
 运行环境以 Linux 为准，最低支持 CPython 3.10，参考版本为 CPython 3.12；Ubuntu 22.04/24.04 与 Python 3.10/3.12 的组合由持续集成验证。开发与回归命令见 [TESTING.md](TESTING.md)。
 
+v1.0.2 的全局节点调度、Scamalytics 配置和 Console 备份恢复实施记录见
+[v1.0.2 全局 Console 实施说明](docs/v1.0.2-global-console.md)。
+
+v1.0.2 中，VPNGate 节点由全局任务统一更新，实例只消费按国家筛选后的共享快照；
+全局质量查询按 IP 去重、使用 7 天缓存并受每日配额限制。默认全局业务存储使用
+SQLite，也可通过 `AIMILIVPN_GLOBAL_STORAGE_BACKEND=json` 临时回退到兼容 JSON。
+Console 支持配置备份和完整业务数据备份，恢复前会预览变更并自动保留回滚快照。
+
 ---
 
 ### 🚀 一键极速部署 (支持 Debian/Ubuntu/CentOS/Alpine 等 Linux 系统)
@@ -102,6 +110,7 @@ CI、迁移/回滚演练和全新 Ubuntu 主机的安装至卸载验证。
   - 支持自定义地区规则，并可按地区筛选节点。
   - 节点质量结果会记录延迟、OpenVPN 检测状态、风险信息和最近检查时间。
   - 如配置 Scamalytics 账号，风险检测只在服务端执行，API key 不会下发到前端。
+  - Console 设置页显示今日配额、缓存命中、实际请求、失败、延后和剩余量。
 * **动态国家实例**：
   - 全新安装只启动 JP；VPNGate 首次刷新后，Console 会列出返回文件中当前有可用节点的其他国家。
   - 创建实例时由后端分配并持久化 TUN、策略路由表和端口，浏览器不能自行指定系统资源。
@@ -218,6 +227,7 @@ To prevent unauthorized scanning and abuse of the proxy port on the public inter
   Configure your scrapers, frameworks, or utility tools on this VPS to send traffic via `127.0.0.1:7928`.
 
 > 💡 **Security note**: Do not expose the proxy port directly to the public internet.
+
 
 ---
 

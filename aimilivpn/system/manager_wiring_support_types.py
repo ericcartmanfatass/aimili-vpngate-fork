@@ -25,6 +25,9 @@ class FetchRuntimeWiring:
     safe_name: Callable[[str], str]
     now: Callable[[], float]
     blacklist_repository: Any | None = None
+    global_nodes_file: Path | None = None
+    get_state: Callable[[], dict[str, Any]] | None = None
+    global_retry_backoff_seconds: tuple[int, ...] = (60, 300, 900, 1800)
 
 
 @dataclass(frozen=True)

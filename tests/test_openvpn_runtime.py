@@ -174,7 +174,7 @@ class OpenVPNRuntimeFacadeTests(unittest.TestCase):
             )
 
             self.assertTrue(ok)
-            self.assertIn("OpenVPN connected", message)
+            self.assertIn("OpenVPN 已连接", message)
             self.assertIs(returned, process)
             self.assertFalse(process.terminated)
             self.assertIn("--config", commands[0])

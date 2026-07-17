@@ -47,7 +47,7 @@ class NodeProbeRuntime:
             nodes = self.read_nodes()
             node = next((item for item in nodes if item.get("id") == node_id), None)
             if not node:
-                raise ValueError(f"Node not found: {node_id}")
+                raise ValueError(f"未找到节点: {node_id}")
             if not self.node_matches_allowed(node):
                 raise ValueError(
                     f"Node {node_id} is outside this instance allowed countries: "

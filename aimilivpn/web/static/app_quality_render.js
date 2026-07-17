@@ -92,7 +92,7 @@ function renderQualityDetails(node, quality) {
             <div class="quality-detail-value">${formatQualityValue(quality && quality.risk_level)}</div>
           </div>
           <div class="quality-detail-item">
-            <div class="quality-detail-label">Proxy</div>
+            <div class="quality-detail-label">代理</div>
             <div class="quality-detail-value">${formatQualityBool(quality && quality.proxy_detected)}</div>
           </div>
           <div class="quality-detail-item">
@@ -107,7 +107,7 @@ function renderQualityDetails(node, quality) {
       <button type="button" class="quality-action-btn" data-action="recheck-quality" data-node-id="${esc(nodeId)}" ${!nodeId || isTesting ? "disabled" : ""}>
         ${isTesting ? "Checking..." : "Recheck"}
       </button>
-      <div class="quality-action-note">${riskProvider === "scamalytics" ? "Scamalytics risk data is included in this result." : "Local probe data is shown; Scamalytics is added when configured and reachable."}</div>
+      <div class="quality-action-note">${riskProvider === "scamalytics" ? "本结果包含 Scamalytics 风险数据。" : "当前显示本地检测数据；配置并连通 Scamalytics 后会补充风险数据。"}</div>
     </div>
   `;
 }

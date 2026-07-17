@@ -175,7 +175,7 @@ class CliParserTests(unittest.TestCase):
             code, out, err = self.run_cli(tmp, "regions", "list")
 
         self.assertEqual(code, 0)
-        self.assertIn("id\tname\tcountries", out)
+        self.assertIn("ID\t名称\t国家", out)
         self.assertIn("asia\tAsia\tJP,KR", out)
         self.assertEqual(err, "")
 
@@ -198,7 +198,7 @@ class CliParserTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(["systemctl", "start", "aimilivpn@jp.service"], calls)
         self.assertIn(["systemctl", "start", "aimilivpn-console.service"], calls)
-        self.assertIn("start requested", out)
+        self.assertIn("已请求对 2 个服务执行 start", out)
         self.assertEqual(err, "")
 
     def test_logs_uses_journalctl_for_discovered_services(self) -> None:
@@ -239,7 +239,7 @@ class CliParserTests(unittest.TestCase):
         combined = web_out + port_out + password_out
         self.assertIn("http://127.0.0.1:8788/consoleabc/", combined)
         self.assertIn("7928", combined)
-        self.assertIn("change in Web UI", combined)
+        self.assertIn("请在 Web UI 中修改", combined)
         self.assertNotIn("plain-secret", combined)
         self.assertNotIn("hash-secret", combined)
 
@@ -261,7 +261,7 @@ class CliParserTests(unittest.TestCase):
             )
             auth = json.loads((cfg_dir / "console_auth.json").read_text(encoding="utf-8"))
 
-        password = next(line.split(": ", 1)[1] for line in out.splitlines() if line.startswith("password: "))
+        password = next(line.split(": ", 1)[1] for line in out.splitlines() if line.startswith("密码: "))
         self.assertEqual(code, 0)
         self.assertTrue(verify_password(password, auth["password_hash"]))
         self.assertNotIn("password", auth)
@@ -274,7 +274,7 @@ class CliParserTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("uninstall requires --yes", err)
+        self.assertIn("卸载需要 --yes", err)
 
     def test_uninstall_preserves_data_and_source_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -317,7 +317,7 @@ class CliParserTests(unittest.TestCase):
             self.assertFalse((unit_dir / "aimilivpn@.service").exists())
             self.assertTrue(data_dir.exists())
             self.assertTrue(install_dir.exists())
-            self.assertIn("Data preserved by default", out)
+            self.assertIn("默认保留数据", out)
             self.assertEqual(err, "")
 
     def test_uninstall_delete_data_requires_extra_confirmation(self) -> None:
@@ -329,7 +329,7 @@ class CliParserTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("--delete-data requires --confirm-delete-data", err)
+        self.assertIn("--delete-data 需要同时指定 --confirm-delete-data", err)
 
     def test_uninstall_restores_preinstall_sysctl_backup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -434,7 +434,7 @@ class CliParserTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertFalse(data_dir.exists())
             self.assertTrue(install_dir.exists())
-            self.assertIn("AimiliVPN uninstall actions complete", out)
+            self.assertIn("AimiliVPN 卸载操作已完成", out)
             self.assertEqual(err, "")
 
     def test_uninstall_refuses_data_path_outside_install_dir(self) -> None:
@@ -468,7 +468,7 @@ class CliParserTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("quality result not found: missing", err)
+        self.assertIn("未找到质量结果: missing", err)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ show_usage() {
     cat <<'EOF'
 AimiliVPN one-script installer and lifecycle entry
 
-Usage:
+用法:
   bash install.sh [--install|--update] [--ref vX.Y.Z|FULL_COMMIT]
   bash install.sh --menu
   bash install.sh --status
@@ -23,20 +23,19 @@ Usage:
   bash install.sh --reset-password
   bash install.sh --uninstall [--yes]
 
-Options:
-  --install             Install or reinstall the selected immutable version.
-  --update              Upgrade using the same safe fast-forward path.
-  --ref REF             Immutable release tag or full 40-character commit.
-  --menu                Open the interactive lifecycle menu.
-  --status              Show instance and service status.
-  --web                 Show loopback Console/Web entry URLs.
-  --reset-password      Generate and display a new Console password once.
-  --uninstall           Remove services/config while preserving source/data.
-  --yes                 Confirm non-interactive uninstall.
-  -h, --help            Show this help.
+选项:
+  --install             安装或重新安装指定的不可变版本。
+  --update              使用同一安全 fast-forward 流程升级。
+  --ref REF             不可变发布标签或完整 40 位 commit。
+  --menu                打开交互式生命周期菜单。
+  --status              查看实例和服务状态。
+  --web                 查看本机 Console/Web 入口地址。
+  --reset-password      生成并仅显示一次新的 Console 密码。
+  --uninstall           移除服务和配置，同时保留源代码与数据。
+  --yes                 确认非交互式卸载。
+  -h, --help            显示此帮助。
 
-Advanced data/source deletion remains available through `ml uninstall` and
-requires its separate explicit confirmation flags.
+高级数据/源代码删除仍可通过 `ml uninstall`，并需要单独的明确确认参数。
 EOF
 }
 
@@ -63,7 +62,7 @@ while [ "$#" -gt 0 ]; do
         --ref)
             shift
             if [ "$#" -eq 0 ]; then
-                echo "Error: --ref requires a value." >&2
+                echo "错误: --ref 必须指定值。" >&2
                 exit 2
             fi
             INSTALL_REF="$1"
@@ -77,13 +76,13 @@ while [ "$#" -gt 0 ]; do
             ;;
         v[0-9]*|[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*)
             if [ -n "$INSTALL_REF" ]; then
-                echo "Error: release ref was provided more than once." >&2
+                echo "错误: release ref 被重复指定。" >&2
                 exit 2
             fi
             INSTALL_REF="$1"
             ;;
         *)
-            echo "Error: unknown argument: $1" >&2
+            echo "错误: 未知参数: $1" >&2
             show_usage >&2
             exit 2
             ;;
@@ -104,7 +103,7 @@ BOOTSTRAP_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
 
 choose_menu_action() {
     if [ ! -t 0 ] || [ ! -t 1 ]; then
-        echo -e "${RED}Error: --menu requires an interactive terminal.${PLAIN}" >&2
+        echo -e "${RED}错误: --menu 需要交互式终端。${PLAIN}" >&2
         exit 2
     fi
     echo -e "${BLUE}==========================================================${PLAIN}"
@@ -186,7 +185,7 @@ if [ -z "$INSTALL_REF" ] && [ ! -f /etc/aimilivpn/install-source.json ] && [ "${
     if [ -t 0 ]; then
         read -r -p "请输入要安装的固定 Tag（如 v1.0.0）或完整 commit: " INSTALL_REF
     else
-        echo -e "${RED}Error: fresh non-interactive installation requires --ref vX.Y.Z or a full commit.${PLAIN}" >&2
+        echo -e "${RED}错误: 全新非交互安装需要 --ref vX.Y.Z 或完整 commit。${PLAIN}" >&2
         exit 2
     fi
 fi
@@ -256,7 +255,7 @@ validate_deploy_ref() {
        [[ "$DEPLOY_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
         return 0
     fi
-    echo -e "${RED}Error: --ref/AIMILIVPN_REF must be an immutable vX.Y.Z tag or full commit SHA.${PLAIN}"
+    echo -e "${RED}错误: --ref/AIMILIVPN_REF 必须是不可变的 vX.Y.Z 标签或完整 commit SHA。${PLAIN}"
     exit 1
 }
 
@@ -277,7 +276,7 @@ handoff_to_pinned_installer() {
     fi
     validate_deploy_ref
     if ! command -v curl >/dev/null 2>&1; then
-        echo -e "${RED}Error: curl is required to obtain the pinned installer.${PLAIN}" >&2
+        echo -e "${RED}错误: 获取固定版本安装脚本需要 curl。${PLAIN}" >&2
         exit 1
     fi
     handoff_script=$(mktemp /tmp/aimilivpn-install.XXXXXX.sh)
@@ -286,9 +285,9 @@ handoff_to_pinned_installer() {
     }
     trap cleanup_handoff EXIT INT TERM
     installer_url="https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/${DEPLOY_REF}/install.sh"
-    echo -e "${YELLOW}Downloading the installer pinned to ${DEPLOY_REF}...${PLAIN}"
+    echo -e "${YELLOW}正在下载固定版本 ${DEPLOY_REF} 的安装脚本...${PLAIN}"
     if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location "$installer_url" --output "$handoff_script"; then
-        echo -e "${RED}Unable to download the pinned installer: ${installer_url}${PLAIN}" >&2
+        echo -e "${RED}无法下载固定版本的安装脚本: ${installer_url}${PLAIN}" >&2
         exit 1
     fi
     chmod 0700 "$handoff_script"
@@ -373,7 +372,7 @@ PY
         CURRENT_COMMIT=$(git rev-parse HEAD)
         DIRTY=$(git status --porcelain)
         if [ -n "$DIRTY" ] && [ "${FORCE_UPDATE:-0}" != "1" ]; then
-            echo -e "${RED}Local source changes detected; update stopped.${PLAIN}"
+            echo -e "${RED}检测到本地源代码修改，更新已停止。${PLAIN}"
             exit 1
         fi
         if [ -n "$DIRTY" ] && [ "${FORCE_UPDATE:-0}" = "1" ]; then
@@ -383,7 +382,7 @@ PY
             git status --porcelain > "$BACKUP_DIR/status.txt"
             git stash push --include-untracked -m "aimilivpn-force-update-backup"
             git bundle create "$BACKUP_DIR/source.bundle" --all
-            echo -e "${YELLOW}Local source backup written to ${BACKUP_DIR}.${PLAIN}"
+            echo -e "${YELLOW}本地源代码备份已写入 ${BACKUP_DIR}。${PLAIN}"
             git reset --hard HEAD
             git clean -fd
         fi
@@ -404,7 +403,7 @@ PY
             fi
         fi
         if [ "$(git rev-parse HEAD)" != "$TARGET_COMMIT" ]; then
-            echo -e "${RED}Source verification failed; update stopped.${PLAIN}"
+            echo -e "${RED}源代码校验失败，更新已停止。${PLAIN}"
             exit 1
         fi
     else
@@ -426,8 +425,8 @@ PY
     BOOTSTRAP_SHA256=$(sha256sum "$BOOTSTRAP_SCRIPT" | awk '{print $1}')
     CHECKOUT_INSTALLER_SHA256=$(sha256sum "${INSTALL_DIR}/install.sh" | awk '{print $1}')
     if [ "$BOOTSTRAP_SHA256" != "$CHECKOUT_INSTALLER_SHA256" ]; then
-        echo -e "${RED}Installer verification failed: the downloaded script does not match ${DEPLOY_REF}.${PLAIN}"
-        echo -e "${YELLOW}Download install.sh from the same immutable tag/commit and retry.${PLAIN}"
+        echo -e "${RED}安装脚本校验失败：下载的脚本与 ${DEPLOY_REF} 不匹配。${PLAIN}"
+        echo -e "${YELLOW}请从相同的不可变标签/commit 下载 install.sh 后重试。${PLAIN}"
         exit 1
     fi
     cd "${INSTALL_DIR}"
@@ -446,7 +445,7 @@ PY
 fi
 
 if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
-    echo -e "  -> Syncing local multi-instance source files into ${INSTALL_DIR} ..."
+    echo -e "  -> 正在同步本地多实例源代码到 ${INSTALL_DIR} ..."
     mkdir -p "${INSTALL_DIR}"
     for src_file in install.sh proxy_server.py vpngate_manager.py vpn_utils.py console_server.py README.md SECURITY.md MIGRATION.md TESTING.md LICENSE .gitignore .gitattributes; do
         if [ -f "${SCRIPT_DIR}/${src_file}" ]; then
@@ -470,7 +469,7 @@ if [ -f "${SCRIPT_DIR}/console_server.py" ]; then
             LOCAL_COMMIT=$(git -C "$SCRIPT_DIR" rev-parse HEAD)
             EXPECTED_COMMIT=$(git -C "$SCRIPT_DIR" rev-parse "${DEPLOY_REF}^{commit}")
             if [ "$LOCAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
-                echo -e "${RED}Local source does not match AIMILIVPN_REF; installation stopped.${PLAIN}"
+                echo -e "${RED}本地源代码与 AIMILIVPN_REF 不匹配，安装已停止。${PLAIN}"
                 exit 1
             fi
         else
@@ -492,7 +491,7 @@ fi
 # 5. Configure Service
 echo -e "\n${YELLOW}[3/4] 正在配置系统服务...${PLAIN}"
 if command -v systemctl >/dev/null 2>&1; then
-    echo -e "  -> Detected systemd, configuring multi-instance backend and single console..."
+    echo -e "  -> 检测到 systemd，正在配置多实例后端和统一 Console..."
     mkdir -p /etc/aimilivpn
 
     if [ ! -f /etc/aimilivpn/instance_api_token ]; then
@@ -519,7 +518,7 @@ for item in data.get("instances", []):
         print(country)
 PY
         )
-        echo -e "  -> Preserving ${#CC_LIST[@]} existing instance catalog entries and env files."
+        echo -e "  -> 保留现有 ${#CC_LIST[@]} 个实例目录项和 env 文件。"
     else
         COUNTRIES="${COUNTRIES:-JP}"
     fi
@@ -594,7 +593,7 @@ PY
     for CC in "${CC_LIST[@]}"; do
         CC="${CC^^}"
         if [ -z "${TUN_DEV_MAP[$CC]:-}" ]; then
-            echo -e "${YELLOW}  -> Skipping unsupported country ${CC}; supported: JP/US/KR${PLAIN}"
+            echo -e "${YELLOW}  -> 跳过不支持的国家 ${CC}；支持: JP/US/KR${PLAIN}"
             continue
         fi
         CC_LO="${CC,,}"
@@ -623,7 +622,7 @@ EOF
         fi
         FIRST_JSON=0
         INSTANCES_JSON="${INSTANCES_JSON}{\"id\":\"${CC_LO}\",\"country\":\"${CC}\",\"service\":\"aimilivpn@${CC_LO}.service\",\"env_file\":\"/etc/aimilivpn/${CC_LO}.env\",\"data_dir\":\"${DATA_DIR}\",\"ui_host\":\"127.0.0.1\",\"ui_port\":${UI_PORT_MAP[$CC]},\"proxy_host\":\"127.0.0.1\",\"proxy_port\":${PROXY_PORT_MAP[$CC]},\"tun_dev\":\"${TUN_DEV_MAP[$CC]}\",\"policy_table\":${POLICY_MAP[$CC]}}"
-        echo -e "  -> ${CC}: ${TUN_DEV_MAP[$CC]}, proxy ${PROXY_PORT_MAP[$CC]}, backend UI ${UI_PORT_MAP[$CC]}"
+        echo -e "  -> ${CC}: TUN ${TUN_DEV_MAP[$CC]}，代理 ${PROXY_PORT_MAP[$CC]}，后端 Web ${UI_PORT_MAP[$CC]}"
     done
     INSTANCES_JSON="${INSTANCES_JSON}]}"
     printf '%s\n' "$INSTANCES_JSON" > /etc/aimilivpn/instances.json
@@ -639,7 +638,7 @@ INSTANCE_API_TOKEN=${INSTANCE_API_TOKEN}
 EOF
     chmod 600 /etc/aimilivpn/console.env
 
-    echo -e "  -> Writing ${SYSTEMD_UNIT_DIR}/aimilivpn-console.service ..."
+    echo -e "  -> 正在写入 ${SYSTEMD_UNIT_DIR}/aimilivpn-console.service ..."
     cat > "${SYSTEMD_UNIT_DIR}/aimilivpn-console.service" <<EOF
 [Unit]
 Description=AimiliVPN unified web console
@@ -684,7 +683,7 @@ elif command -v rc-service >/dev/null 2>&1; then
     cat > /etc/init.d/aimilivpn <<EOF
 #!/sbin/openrc-run
 
-description="AimiliVPN OpenVPN Manager with HTTP/SOCKS5 Proxy"
+description="AimiliVPN OpenVPN 管理器（HTTP/SOCKS5 代理）"
 command="/usr/bin/python3"
 command_args="-m aimilivpn.system.vpngate_manager"
 command_background="yes"
@@ -889,13 +888,13 @@ EOF
     chmod 644 /etc/sysctl.d/99-aimilivpn.conf
     sysctl -p /etc/sysctl.d/99-aimilivpn.conf >/dev/null 2>&1 || true
 else
-    echo -e "${YELLOW}Warning: /etc/sysctl.d is unavailable; applying rp_filter for this boot only and leaving /etc/sysctl.conf untouched.${PLAIN}"
+    echo -e "${YELLOW}警告: /etc/sysctl.d 不可用；本次启动仅临时应用 rp_filter，不修改 /etc/sysctl.conf。${PLAIN}"
     sysctl -w net.ipv4.conf.all.rp_filter=2 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.conf.default.rp_filter=2 >/dev/null 2>&1 || true
 fi
 
 if [ -f "${SYSTEMD_UNIT_DIR}/aimilivpn@.service" ] || [ -f /lib/systemd/system/aimilivpn@.service ] || [ -f /usr/lib/systemd/system/aimilivpn@.service ]; then
-    echo -e "\nStarting AimiliVPN multi-instance backend and unified console..."
+    echo -e "\n正在启动 AimiliVPN 多实例后端和统一 Console..."
     if command -v systemctl >/dev/null 2>&1; then
         if [ -f /etc/aimilivpn/instances.json ]; then
             for svc in $(python3 - <<'PY'
@@ -910,7 +909,7 @@ PY
         fi
         systemctl restart aimilivpn-console.service || true
     fi
-    echo -e "${YELLOW}Initial node fetching and VPN connection run in the background. Use 'ml status' to monitor.${PLAIN}"
+    echo -e "${YELLOW}首次节点获取和 VPN 连接将在后台运行，请使用 'ml status' 查看状态。${PLAIN}"
 else
 echo -e "\n正在启动 AimiliVPN 服务并初始化网络..."
 if command -v systemctl >/dev/null 2>&1; then
@@ -989,13 +988,13 @@ PY
     CONSOLE_USER=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('username','admin'))" 2>/dev/null || echo "admin")
     CONSOLE_PORT=$(python3 -c "import json; print(json.load(open('/etc/aimilivpn/console_auth.json')).get('port',8788))" 2>/dev/null || echo "8788")
     echo -e "\n${GREEN}==========================================================${PLAIN}"
-    echo -e "${GREEN}             AimiliVPN multi-instance deployment complete${PLAIN}"
+    echo -e "${GREEN}             AimiliVPN 多实例部署已完成${PLAIN}"
     echo -e "${GREEN}==========================================================${PLAIN}"
-    echo -e "  * Unified console upstream: ${BLUE}http://127.0.0.1:${CONSOLE_PORT}/${PLAIN} (loopback only)"
-    echo -e "  * Remote management: configure a TLS reverse proxy; see ${INSTALL_DIR}/docs/reverse-proxy.md"
-    echo -e "  * Secret path is intentionally hidden from install logs; run ${YELLOW}ml web${PLAIN} when needed"
-    echo -e "  * Console username: ${YELLOW}${CONSOLE_USER}${PLAIN}"
-    echo -e "  * Console password: run ${YELLOW}sudo ml password reset${PLAIN} to generate and display a one-time value"
+    echo -e "  * 统一 Console 地址: ${BLUE}http://127.0.0.1:${CONSOLE_PORT}/${PLAIN}（仅 loopback）"
+    echo -e "  * 远程管理: 请配置 TLS 反向代理，参考 ${INSTALL_DIR}/docs/reverse-proxy.md"
+    echo -e "  * 安全路径不会写入安装日志，需要时运行 ${YELLOW}ml web${PLAIN} 查看"
+    echo -e "  * Console 用户名: ${YELLOW}${CONSOLE_USER}${PLAIN}"
+    echo -e "  * Console 密码: 运行 ${YELLOW}sudo ml password reset${PLAIN} 生成并显示一次性密码"
     echo -e " --------------------------------------------------------"
     python3 - <<'PY'
 import json
@@ -1004,12 +1003,12 @@ for item in data.get("instances", []):
     print(f"  * [{item.get('country')}] proxy: socks5://127.0.0.1:{item.get('proxy_port')}  service: {item.get('service')}")
 PY
     echo -e " --------------------------------------------------------"
-    echo -e "  * Overview:         ${YELLOW}ml status${PLAIN}"
-    echo -e "  * Logs:             ${YELLOW}ml logs${PLAIN}"
-    echo -e "  * Restart services: ${YELLOW}ml restart${PLAIN}"
-    echo -e "  * Web URLs:         ${YELLOW}ml web${PLAIN}"
-    echo -e "  * Password status:  ${YELLOW}ml password${PLAIN}"
-    echo -e "  * Reset password:   ${YELLOW}sudo ml password reset${PLAIN}"
+    echo -e "  * 概览:              ${YELLOW}ml status${PLAIN}"
+    echo -e "  * 日志:              ${YELLOW}ml logs${PLAIN}"
+    echo -e "  * 重启服务:          ${YELLOW}ml restart${PLAIN}"
+    echo -e "  * Web 地址:          ${YELLOW}ml web${PLAIN}"
+    echo -e "  * 密码状态:          ${YELLOW}ml password${PLAIN}"
+    echo -e "  * 重置密码:          ${YELLOW}sudo ml password reset${PLAIN}"
     echo -e "=========================================================="
     offer_initial_password_reset
     echo
@@ -1023,13 +1022,13 @@ echo -e "  * 网页控制面板 upstream: ${BLUE}http://127.0.0.1:${UI_PORT}/${P
 echo -e "  * 远程管理必须使用 TLS 反向代理：${INSTALL_DIR}/docs/reverse-proxy.md"
 echo -e "  * 安装日志不输出安全路径；需要时运行 ${YELLOW}ml web${PLAIN}"
 echo -e "  * 网页管理账号:  ${YELLOW}${USERNAME}${PLAIN}"
-echo -e "  * Web password:    ${YELLOW}set; use the Web UI to change it${PLAIN}"
+echo -e "  * Web 密码:         ${YELLOW}已设置；请在 Web UI 中修改${PLAIN}"
 echo -e "  * HTTP/SOCKS5 代理端口:  ${BLUE}http://127.0.0.1:${PROXY_PORT}/${PLAIN}  或  ${BLUE}http://[::1]:${PROXY_PORT}/${PLAIN}"
 echo -e " --------------------------------------------------------"
 echo -e "  * 快速状态指令:   ${YELLOW}ml status${PLAIN}  或  ${YELLOW}ml${PLAIN}"
 echo -e "  * 查看实时日志:   ${YELLOW}ml logs${PLAIN}"
-echo -e "  * Web URLs:        ${YELLOW}ml web${PLAIN}"
-echo -e "  * Password status: ${YELLOW}ml password${PLAIN}"
+echo -e "  * Web 地址:         ${YELLOW}ml web${PLAIN}"
+echo -e "  * 密码状态:         ${YELLOW}ml password${PLAIN}"
 echo -e "  * 停止服务:       ${YELLOW}ml stop${PLAIN}"
 echo -e "  * 重启服务:       ${YELLOW}ml restart${PLAIN}"
 echo -e "=========================================================="

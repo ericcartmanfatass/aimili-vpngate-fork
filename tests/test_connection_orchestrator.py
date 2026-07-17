@@ -164,8 +164,8 @@ class ConnectionOrchestratorTests(unittest.TestCase):
 
             result = orchestrator.connect_node("jp_1")
 
-        self.assertEqual(result, "Connected jp_1")
-        self.assertEqual(state["phases"][-1], ("connected", "connected to jp_1", "jp_1"))
+        self.assertEqual(result, "已连接 jp_1")
+        self.assertEqual(state["phases"][-1], ("connected", "已连接到 jp_1", "jp_1"))
 
     def test_auto_switch_connects_best_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,6 +180,18 @@ class ConnectionOrchestratorTests(unittest.TestCase):
             orchestrator.auto_switch_node()
 
         self.assertEqual(connected, ["jp_2"])
+
+    def test_auto_switch_schedules_connection_retry_with_backoff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            nodes = [{"id": "jp_1", "probe_status": "available", "latency_ms": "10"}]
+            orchestrator, state = self.build_orchestrator(nodes=nodes, tmp_dir=Path(tmp))
+            orchestrator.connect_node = lambda node_id: (_ for _ in ()).throw(RuntimeError("offline"))  # type: ignore[method-assign]
+
+            orchestrator.auto_switch_node()
+
+        self.assertEqual(len(state["threads"]), 1)
+        self.assertEqual(state["states"][-1]["connection_retry_level"], 1)
+        self.assertEqual(state["states"][-1]["next_connection_retry_at"], 183.0)
 
     def test_connect_node_success_updates_runtime_state_and_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -199,7 +211,7 @@ class ConnectionOrchestratorTests(unittest.TestCase):
             result = orchestrator.connect_node("jp_1")
             config_text = config_path.read_text(encoding="utf-8")
 
-        self.assertEqual(result, "Connected jp_1")
+        self.assertEqual(result, "已连接 jp_1")
         self.assertEqual(state["active_node_id"], "jp_1")
         self.assertEqual(state["last_latency"], 33)
         self.assertEqual(state["route_interface"], "tun0")
@@ -239,7 +251,7 @@ class ConnectionOrchestratorTests(unittest.TestCase):
             result = orchestrator.maintain_valid_nodes()
             config_text = config_path.read_text(encoding="utf-8")
 
-        self.assertEqual(result, "Fetched 1 nodes. Tested 1 non-active nodes.")
+        self.assertEqual(result, "已获取 1 个节点，已检测 1 个非当前节点。")
         self.assertEqual(tested, ["jp_1"])
         self.assertEqual(config_text, "client")
         self.assertTrue(state["released"])

@@ -109,7 +109,7 @@ class ConsoleRouteSecurityTests(unittest.TestCase):
 
         self.assertEqual(handler.response_status, HTTPStatus.FORBIDDEN)
         self.assertNotIn(b"sensitive detail", handler.wfile.getvalue())
-        self.assertIn(b"login failed", handler.wfile.getvalue())
+        self.assertIn("登录失败".encode("utf-8"), handler.wfile.getvalue())
 
     def test_rate_limited_login_uses_generic_failure(self) -> None:
         handler = build_login_handler(secure=False)
@@ -117,7 +117,7 @@ class ConsoleRouteSecurityTests(unittest.TestCase):
             handler.do_POST()
 
         self.assertEqual(handler.response_status, HTTPStatus.TOO_MANY_REQUESTS)
-        self.assertIn(b"login failed", handler.wfile.getvalue())
+        self.assertIn("登录失败".encode("utf-8"), handler.wfile.getvalue())
 
     def test_logout_removes_server_side_session(self) -> None:
         handler = build_login_handler(secure=False)

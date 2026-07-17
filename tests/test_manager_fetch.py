@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import json
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock, sentinel, patch
 
@@ -79,6 +81,53 @@ class ManagerFetchRuntimeTests(unittest.TestCase):
         facade.fetch_api_text_via_proxy.assert_called_once_with("url", "http", "127.0.0.1", 8080, False)
         facade.fetch_api_text.assert_called_once_with("url", False)
         facade.fetch_candidates.assert_called_once_with()
+
+    def test_configured_global_mode_never_falls_back_to_instance_vpngate_request(self) -> None:
+        runtime = self.make_runtime()
+        runtime.global_nodes_file = Path("missing-global-nodes.json")
+        facade = Mock()
+        with patch.object(runtime, "facade", return_value=facade):
+            candidates = runtime.fetch_candidates()
+
+        self.assertEqual(candidates, [])
+        facade.fetch_candidates.assert_not_called()
+        self.assertTrue(any(call.kwargs.get("last_fetch_status") == "empty" for call in runtime.set_state.call_args_list))
+
+    def test_global_empty_snapshot_uses_persistent_instance_backoff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = self.make_runtime()
+            runtime.global_nodes_file = Path(tmp) / "nodes.json"
+            now = [100.0]
+            state = [{}]
+            runtime.now = lambda: now[0]
+            runtime.get_state = lambda: state[-1]
+            runtime.global_retry_backoff_seconds = (60, 300)
+
+            self.assertEqual(runtime.fetch_candidates(), [])
+            first_updates = runtime.set_state.call_args_list
+            first_retry = next(call.kwargs["global_next_retry_at"] for call in first_updates if "global_next_retry_at" in call.kwargs)
+            self.assertEqual(first_retry, 160.0)
+
+            state.append({"global_fetch_failure_count": 1, "global_next_retry_at": 160.0})
+            now[0] = 120.0
+            self.assertEqual(runtime.fetch_candidates(), [])
+            self.assertEqual(runtime.set_state.call_args_list[-1].kwargs["last_fetch_status"], "backoff")
+
+    def test_global_snapshot_candidates_are_filtered_without_network_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_file = root / "jp-1.ovpn"
+            config_file.write_text("client\n", encoding="utf-8")
+            (root / "nodes.json").write_text(json.dumps({"nodes": [
+                {"id": "jp-1", "server_ip": "203.0.113.1", "country_short": "JP", "config_file": str(config_file)},
+                {"id": "us-1", "server_ip": "203.0.113.2", "country_short": "US", "config_file": str(config_file)},
+            ]}), encoding="utf-8")
+            runtime = self.make_runtime()
+            runtime.global_nodes_file = root / "nodes.json"
+
+            candidates = runtime.fetch_candidates()
+
+        self.assertEqual([item["id"] for item in candidates], ["jp-1"])
 
 
 if __name__ == "__main__":

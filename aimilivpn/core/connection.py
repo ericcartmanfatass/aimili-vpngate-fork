@@ -37,7 +37,7 @@ def auto_switch_connect_message(node_id: str) -> str:
 def normalize_node_id(value: Any) -> str:
     node_id = str(value or "").strip()
     if not node_id:
-        raise ValueError("Node id is required")
+        raise ValueError("节点 ID 不能为空")
     return node_id
 
 
@@ -50,9 +50,9 @@ def require_connectable_node(
 ) -> dict[str, Any]:
     node = next((item for item in nodes if item.get("id") == node_id), None)
     if not node:
-        raise ValueError(f"Node not found: {node_id}")
+        raise ValueError(f"未找到节点: {node_id}")
     if not node_matches_allowed(node):
-        raise ValueError(f"Node {node_id} is outside this instance allowed countries: {sorted(allowed_countries)}")
+        raise ValueError(f"节点 {node_id} 不属于此实例允许的国家: {sorted(allowed_countries)}")
     return node
 
 
@@ -93,7 +93,7 @@ def connection_success_state(node_id: str, *, latency_ms: int, timeout_label: st
     return {
         "active_openvpn_node_id": node_id,
         "is_connecting": False,
-        "last_check_message": f"Connected {node_id}",
+        "last_check_message": f"已连接 {node_id}",
         "active_node_latency": latency_label(latency_ms, timeout_label=timeout_label),
     }
 
@@ -141,7 +141,7 @@ def mark_active_node(nodes: list[dict[str, Any]], node_id: str, *, proxy_url: st
         is_active = node.get("id") == node_id
         node["active"] = is_active
         if is_active:
-            node["probe_message"] = f"Active node. HTTP proxy: {proxy_url}"
+            node["probe_message"] = f"当前节点，HTTP 代理: {proxy_url}"
 
 
 def mark_connection_failed(nodes: list[dict[str, Any]], node_id: str, *, message: str) -> dict[str, Any] | None:

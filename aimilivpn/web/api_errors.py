@@ -5,22 +5,22 @@ from typing import Any
 
 
 SAFE_ERROR_MESSAGES = {
-    "internal_error": "request failed",
-    "maintenance_failed": "maintenance operation failed",
-    "node_operation_failed": "node operation failed",
-    "configuration_failed": "configuration update failed",
-    "proxy_check_failed": "proxy check failed",
-    "region_operation_failed": "region operation failed",
-    "quality_provider_failed": "quality provider unavailable",
-    "authentication_failed": "login failed",
-    "logout_failed": "logout failed",
-    "unauthorized": "Unauthorized",
-    "not_found": "not found",
-    "invalid_query": "invalid query parameters",
-    "invalid_node_ids": "invalid node identifiers",
-    "invalid_node_request": "invalid node request",
-    "invalid_idempotency_key": "invalid idempotency key",
-    "operation_capacity": "operation capacity reached",
+    "internal_error": "请求失败",
+    "maintenance_failed": "节点维护操作失败",
+    "node_operation_failed": "节点操作失败",
+    "configuration_failed": "配置更新失败",
+    "proxy_check_failed": "代理检测失败",
+    "region_operation_failed": "地区操作失败",
+    "quality_provider_failed": "质量服务暂不可用",
+    "authentication_failed": "登录失败",
+    "logout_failed": "退出失败",
+    "unauthorized": "未授权",
+    "not_found": "未找到",
+    "invalid_query": "查询参数无效",
+    "invalid_node_ids": "节点标识无效",
+    "invalid_node_request": "节点请求无效",
+    "invalid_idempotency_key": "幂等键无效",
+    "operation_capacity": "操作队列已满",
 }
 
 def send_api_error(

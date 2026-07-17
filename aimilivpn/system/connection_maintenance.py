@@ -22,7 +22,7 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
         return msg
 
     ctx.set_is_connecting(True)
-    ctx.transition(ConnectionPhase.FETCHING, "fetching VPN nodes")
+    ctx.transition(ConnectionPhase.FETCHING, "正在获取 VPN 节点")
     try:
         if force:
             ctx.run_locked(ctx.stop_active_openvpn)
@@ -44,7 +44,7 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
 
         if not candidates:
             phase = ConnectionPhase.CONNECTED if ctx.active_openvpn_running() else ConnectionPhase.IDLE
-            ctx.transition(phase, "no new candidate nodes", ctx.get_active_node_id())
+            ctx.transition(phase, "暂无新的候选节点", ctx.get_active_node_id())
             return "没有拉取到新节点"
 
         ctx.run_locked(lambda: ctx._merge_candidate_nodes(candidates))
@@ -58,7 +58,7 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
         ctx.log_line("INFO", "Main", msg)
 
         ctx.set_state(is_connecting=True, last_check_message=msg)
-        ctx.transition(ConnectionPhase.PROBING, "probing candidate nodes")
+        ctx.transition(ConnectionPhase.PROBING, "正在检测候选节点")
         if to_test_ids:
             ctx.test_multiple_nodes(to_test_ids)
         else:
@@ -67,7 +67,7 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
 
         status = ctx.run_locked(ctx._finish_maintenance_cycle)
         valid_nodes_count = status["valid_nodes_count"]
-        message = f"Fetched {len(candidates)} nodes. Tested {len(to_test_ids)} non-active nodes."
+        message = f"已获取 {len(candidates)} 个节点，已检测 {len(to_test_ids)} 个非当前节点。"
         ctx.set_state(
             last_check_at=ctx.now(),
             last_check_message=message,
@@ -78,7 +78,7 @@ def maintain_valid_nodes(ctx: Any, force: bool = False) -> str:
         ctx.transition(phase, message, ctx.get_active_node_id())
         return message
     except Exception:
-        ctx.transition(ConnectionPhase.FAILED, "maintenance failed")
+        ctx.transition(ConnectionPhase.FAILED, "节点维护失败")
         raise
     finally:
         ctx.set_is_connecting(False)
@@ -138,7 +138,7 @@ def finish_maintenance_cycle(ctx: Any) -> dict[str, Any]:
     ctx.log_line("INFO", "Main", status_report)
 
     if active_node != "none" and not ctx.active_openvpn_running():
-        warn_msg = f"[diagnostic warning] active node {active_node} is marked active, but OpenVPN is not running."
+        warn_msg = f"[诊断警告] 当前节点 {active_node} 标记为活动状态，但 OpenVPN 未运行。"
         ctx.print_line(warn_msg)
         ctx.log_line("WARNING", "Main", warn_msg)
 

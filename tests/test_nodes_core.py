@@ -43,7 +43,7 @@ class NodeCoreTests(unittest.TestCase):
         nodes = [{"id": "jp1", "country_short": "JP"}, {"id": "us1", "country_short": "US"}]
 
         self.assertEqual(normalize_node_id("  jp1 "), "jp1")
-        with self.assertRaisesRegex(ValueError, "Node id is required"):
+        with self.assertRaisesRegex(ValueError, "节点 ID 不能为空"):
             normalize_node_id("")
 
         node = require_connectable_node(
@@ -54,7 +54,7 @@ class NodeCoreTests(unittest.TestCase):
         )
         self.assertIs(node, nodes[0])
 
-        with self.assertRaisesRegex(ValueError, "Node not found: missing"):
+        with self.assertRaisesRegex(ValueError, "未找到节点: missing"):
             require_connectable_node(
                 nodes,
                 "missing",
@@ -62,7 +62,7 @@ class NodeCoreTests(unittest.TestCase):
                 allowed_countries={"JP"},
             )
 
-        with self.assertRaisesRegex(ValueError, "outside this instance allowed countries"):
+        with self.assertRaisesRegex(ValueError, "不属于此实例允许的国家"):
             require_connectable_node(
                 nodes,
                 "us1",
@@ -111,7 +111,7 @@ class NodeCoreTests(unittest.TestCase):
             {
                 "active_openvpn_node_id": "jp1",
                 "is_connecting": False,
-                "last_check_message": "Connected jp1",
+                "last_check_message": "已连接 jp1",
                 "active_node_latency": "42 ms",
             },
         )
@@ -290,7 +290,7 @@ class NodeCoreTests(unittest.TestCase):
 
         self.assertFalse(nodes[0]["active"])
         self.assertTrue(nodes[1]["active"])
-        self.assertEqual(nodes[1]["probe_message"], "Active node. HTTP proxy: http://127.0.0.1:7928")
+        self.assertEqual(nodes[1]["probe_message"], "当前节点，HTTP 代理: http://127.0.0.1:7928")
         self.assertEqual(latency_label(42), "42 ms")
         self.assertEqual(latency_label(0, timeout_label="检测超时"), "检测超时")
 
@@ -313,7 +313,7 @@ class NodeCoreTests(unittest.TestCase):
         self.assertEqual(proxy_url, "http://[::1]:7928")
         self.assertTrue(nodes[0]["active"])
         self.assertFalse(nodes[1]["active"])
-        self.assertEqual(nodes[0]["probe_message"], "Active node. HTTP proxy: http://[::1]:7928")
+        self.assertEqual(nodes[0]["probe_message"], "当前节点，HTTP 代理: http://[::1]:7928")
         self.assertEqual(build_proxy_url("127.0.0.1", 8080), "http://127.0.0.1:8080")
 
 

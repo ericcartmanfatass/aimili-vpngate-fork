@@ -49,7 +49,7 @@ def connect_node(ctx: Any, node_id: str) -> str:
         try:
             ctx.write_ovpn_config(config_path, node.get("config_text") or "")
         except Exception as exc:
-            raise RuntimeError(f"Failed to write configuration: {exc}") from exc
+            raise RuntimeError(f"写入配置失败: {exc}") from exc
 
         ctx.set_state(active_node_latency="启动核心", last_check_message="正在启动 OpenVPN Core 核心服务并建立连接...")
         ok, message, process = ctx.run_openvpn_until_ready(str(node["config_file"]))
@@ -109,21 +109,21 @@ def connect_node(ctx: Any, node_id: str) -> str:
                 timeout_label="检测超时",
             )
         )
-        ctx.transition(ConnectionPhase.CONNECTED, f"connected to {node_id}", node_id)
+        ctx.transition(ConnectionPhase.CONNECTED, f"已连接到 {node_id}", node_id)
         ctx.log_line("INFO", "VPN", f"节点 {node_id} 连接成功，出口网卡 {ctx.tun_dev()} 已启用")
-        return f"Connected {node_id}"
+        return f"已连接 {node_id}"
     except Exception as exc:
-        ctx.log_line("ERROR", "VPN", f"connection attempt failed: {type(exc).__name__}: {exc}")
-        ctx.transition(ConnectionPhase.FAILED, "connection failed")
+        ctx.log_line("ERROR", "VPN", f"连接尝试失败: {type(exc).__name__}: {exc}")
+        ctx.transition(ConnectionPhase.FAILED, "连接失败")
         if should_clear_failed_connection(
             stopped_existing=stopped_existing,
             active_node_id=ctx.get_active_node_id(),
             requested_node_id=node_id,
             active_running=ctx.active_openvpn_running(),
         ):
-            ctx.clear_active_connection_state("connection failed")
+            ctx.clear_active_connection_state("连接失败")
         else:
-            ctx.set_state(is_connecting=False, last_check_message="connection failed")
+            ctx.set_state(is_connecting=False, last_check_message="连接失败")
         raise
     finally:
         def finish_connecting() -> None:

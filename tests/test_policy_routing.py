@@ -28,7 +28,7 @@ class PolicyRoutingFacadeTests(unittest.TestCase):
         self.assertIn(["ip", "route", "add", "default", "dev", "tun7", "table", "107"], commands)
         self.assertIn(["ip", "rule", "add", "oif", "tun7", "table", "107"], commands)
         self.assertIn(["sysctl", "-w", "net.ipv4.conf.tun7.rp_filter=2"], commands)
-        self.assertTrue(any("attempt 1 success" in message for message in messages))
+        self.assertTrue(any("第 1 次尝试成功" in message for message in messages))
 
     def test_setup_retries_and_logs_final_failure(self) -> None:
         sleeps: list[float] = []
@@ -50,7 +50,7 @@ class PolicyRoutingFacadeTests(unittest.TestCase):
         facade.setup("tun7", "107")
 
         self.assertEqual(sleeps, [1, 1, 1])
-        self.assertEqual(len([message for message in messages if "Attempt" in message]), 3)
+        self.assertEqual(len([message for message in messages if "第 " in message and "次启用失败" in message]), 3)
         self.assertEqual(logs[0][0], "ERROR")
         self.assertIn("ERR_ROUTE_TABLE_ADD_FAILED", logs[0][1])
 

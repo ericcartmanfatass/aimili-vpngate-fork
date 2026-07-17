@@ -170,7 +170,7 @@ class PageRouteTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
-        self.assertEqual(payload["error"], "Unauthorized")
+        self.assertEqual(payload["error"], "未授权")
 
     def test_authorized_root_serves_index(self) -> None:
         handler = FakeHandler()
@@ -515,7 +515,7 @@ class WebRoutesTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
-        self.assertEqual(payload["error"], "Unauthorized")
+        self.assertEqual(payload["error"], "未授权")
 
     def test_api_post_dispatches_proxy_check(self) -> None:
         handler = FakeHandler()
@@ -535,7 +535,7 @@ class WebRoutesTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.NOT_FOUND)
-        self.assertEqual(payload["error"], "not found")
+        self.assertEqual(payload["error"], "未找到")
 
     def test_api_put_rejects_unauthorized_request(self) -> None:
         repository = FakeRegionRepository()
@@ -546,7 +546,7 @@ class WebRoutesTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
-        self.assertEqual(payload["error"], "Unauthorized")
+        self.assertEqual(payload["error"], "未授权")
 
     def test_api_put_dispatches_region_update(self) -> None:
         repository = FakeRegionRepository()
@@ -584,7 +584,7 @@ class WebRoutesTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
-        self.assertEqual(payload["error"], "Unauthorized")
+        self.assertEqual(payload["error"], "未授权")
         self.assertIsNotNone(repository.get("jp"))
 
     def test_api_delete_returns_not_found_for_unknown_path(self) -> None:
@@ -596,7 +596,7 @@ class WebRoutesTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.NOT_FOUND)
-        self.assertEqual(payload["error"], "not found")
+        self.assertEqual(payload["error"], "未找到")
 
     def test_get_quality_by_node(self) -> None:
         repository = FakeRegionRepository()
@@ -747,7 +747,7 @@ class WebRoutesTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.BAD_REQUEST)
-        self.assertEqual(payload["error"], "region not found")
+        self.assertEqual(payload["error"], "地区不存在")
         self.assertEqual(context._test_saved_configs, [])  # type: ignore[attr-defined]
 
     def test_update_routing_saves_routing_fields(self) -> None:

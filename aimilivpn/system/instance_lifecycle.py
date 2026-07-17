@@ -232,7 +232,7 @@ class InstanceLifecycle:
             instances = self._instances()
             record = next((item for item in instances if str(item.get("id") or "").lower() == instance_id), None)
             if record is None:
-                raise LifecycleError("instance_not_found", "instance not found", 404)
+                raise LifecycleError("instance_not_found", "实例不存在", 404)
             expected_env = (self.config_dir / f"{instance_id}.env").resolve(strict=False)
             env_file = Path(str(record.get("env_file") or expected_env)).resolve(strict=False)
             if env_file != expected_env:
@@ -326,7 +326,7 @@ class InstanceLifecycle:
     def _systemctl_required(self, args: list[str]) -> None:
         result = self.systemctl(args)
         if int(getattr(result, "returncode", 1)) != 0:
-            raise LifecycleError("systemctl_failed", "managed service operation failed", 500)
+            raise LifecycleError("systemctl_failed", "服务操作失败", 500)
 
     def _rollback_create(
         self,

@@ -56,6 +56,8 @@ class ManagerConnectionRuntime:
     node_test_workers: Callable[[], int]
     exclude_datacenter: Callable[[], bool]
     set_connection_phase: Callable[[ConnectionPhase | str, str, str], None] | None = None
+    wait_for_stop: Callable[[float], bool] | None = None
+    instance_retry_backoff_seconds: tuple[int, ...] = (60, 300, 900, 1800)
     _connection_runtime_facade: ActiveConnectionRuntimeFacade | None = field(default=None, init=False)
     _connection_orchestrator: ConnectionOrchestrator | None = field(default=None, init=False)
 
@@ -130,6 +132,8 @@ class ManagerConnectionRuntime:
                 node_test_workers=self.node_test_workers,
                 exclude_datacenter=self.exclude_datacenter,
                 set_connection_phase=self.set_connection_phase,
+                wait_for_stop=self.wait_for_stop,
+                instance_retry_backoff_seconds=self.instance_retry_backoff_seconds,
             )
         return self._connection_orchestrator
 

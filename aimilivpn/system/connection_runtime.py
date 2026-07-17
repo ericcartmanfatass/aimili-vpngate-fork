@@ -91,8 +91,8 @@ class ActiveConnectionRuntimeFacade:
         if self.log_line:
             self.log_line("ERROR", log_message_template.format(node_id=node_id, message=message))
         self.print_line(print_message_template.format(node_id=node_id, message=message))
-        self.set_state(**connection_failure_state("connection could not be established"))
-        self.transition(ConnectionPhase.FAILED, "connection failed")
+        self.set_state(**connection_failure_state("无法建立连接"))
+        self.transition(ConnectionPhase.FAILED, "连接失败")
         return ""
 
     def register_active_process(

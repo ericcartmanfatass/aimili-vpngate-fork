@@ -43,6 +43,23 @@ only, additional countries are created from the authenticated server catalog,
 and uninstall preserves source/data. Permanent data or source deletion remains
 an advanced `ml uninstall` operation with separate confirmation flags.
 
+## v1.0.2 global Console data
+
+The v1.0.2 Console owns one VPNGate refresh task for all instances. Shared node
+data and quality task state are stored below the global data directory. SQLite is
+the normal business-data backend; for a controlled rollback or compatibility
+check, set `AIMILIVPN_GLOBAL_STORAGE_BACKEND=json` before starting the Console.
+Instances continue to use their own runtime files for OpenVPN content, locks and
+short-lived state.
+
+The Console backup menu provides a configuration backup and an optional full
+business-data backup. Full restore follows upload, validation, preview, explicit
+confirmation, automatic pre-restore backup, and rollback-on-failure. It never
+restores systemd units, TUN devices, policy tables, ports, OpenVPN configuration
+content, passwords, session tokens, or Scamalytics API keys. After restoring settings,
+the administrator must re-enter any missing sensitive credential through the
+Console.
+
 ## Verify before running
 
 Release assets must publish both `aimilivpn-VERSION.tar.gz` and `SHA256SUMS`.

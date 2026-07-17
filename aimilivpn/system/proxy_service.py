@@ -36,7 +36,7 @@ def start_proxy_server(
         server.bind((host, port))
         server.listen(256)
         server.settimeout(1.0)
-        print(f"HTTP/SOCKS5 proxy listening on {host}:{port} (bind dev: {bind_device_name()})", flush=True)
+        print(f"HTTP/SOCKS5 代理已监听 {host}:{port}（绑定设备: {bind_device_name()}）", flush=True)
     except Exception as e:
         if server is not None:
             try:
@@ -44,37 +44,37 @@ def start_proxy_server(
             except Exception:
                 pass
         if is_ipv6 and host in ("::", ""):
-            print(f"[warning] IPv6 bind {host}:{port} failed ({e}); falling back to IPv4 0.0.0.0 ...", flush=True)
+            print(f"[警告] IPv6 绑定 {host}:{port} 失败（{e}），正在回退到 IPv4 0.0.0.0 ...", flush=True)
             try:
                 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 server.bind(("0.0.0.0", port))
                 server.listen(256)
                 server.settimeout(1.0)
-                print(f"HTTP/SOCKS5 proxy listening on 0.0.0.0:{port} (IPv4 fallback)", flush=True)
+                print(f"HTTP/SOCKS5 代理已监听 0.0.0.0:{port}（IPv4 回退）", flush=True)
             except Exception as ex:
                 diag = vpn_utils.diagnose_local_obstructions(port, host="0.0.0.0")
                 diag_msg = diag[1] if diag else str(ex)
-                print(f"[ERROR] Failed to start HTTP/SOCKS5 proxy on 0.0.0.0:{port}: {diag_msg}", flush=True)
+                print(f"[错误] 无法在 0.0.0.0:{port} 启动 HTTP/SOCKS5 代理: {diag_msg}", flush=True)
                 return
         elif is_ipv6 and host == "::1":
-            print(f"[warning] IPv6 bind {host}:{port} failed ({e}); falling back to IPv4 127.0.0.1 ...", flush=True)
+            print(f"[警告] IPv6 绑定 {host}:{port} 失败（{e}），正在回退到 IPv4 127.0.0.1 ...", flush=True)
             try:
                 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 server.bind(("127.0.0.1", port))
                 server.listen(256)
                 server.settimeout(1.0)
-                print(f"HTTP/SOCKS5 proxy listening on 127.0.0.1:{port} (IPv4 fallback)", flush=True)
+                print(f"HTTP/SOCKS5 代理已监听 127.0.0.1:{port}（IPv4 回退）", flush=True)
             except Exception as ex:
                 diag = vpn_utils.diagnose_local_obstructions(port, host="127.0.0.1")
                 diag_msg = diag[1] if diag else str(ex)
-                print(f"[ERROR] Failed to start HTTP/SOCKS5 proxy on 127.0.0.1:{port}: {diag_msg}", flush=True)
+                print(f"[错误] 无法在 127.0.0.1:{port} 启动 HTTP/SOCKS5 代理: {diag_msg}", flush=True)
                 return
         else:
             diag = vpn_utils.diagnose_local_obstructions(port, host=host)
             diag_msg = diag[1] if diag else str(e)
-            print(f"[ERROR] Failed to start HTTP/SOCKS5 proxy on {host}:{port}: {diag_msg}", flush=True)
+            print(f"[错误] 无法在 {host}:{port} 启动 HTTP/SOCKS5 代理: {diag_msg}", flush=True)
             return
 
     try:
@@ -86,13 +86,13 @@ def start_proxy_server(
             except OSError as exc:
                 if shutdown.is_set():
                     break
-                print(f"[ERROR] Proxy accept failed: {exc}", flush=True)
+                print(f"[错误] 代理接收连接失败: {exc}", flush=True)
                 if shutdown.wait(0.5):
                     break
                 continue
             if not proxy_connection_sem.acquire(blocking=False):
                 print(
-                    f"[proxy rate limit] current connections reached {MAX_PROXY_CONNECTIONS}; rejecting client {address}",
+                    f"[代理限流] 当前连接数已达到 {MAX_PROXY_CONNECTIONS}，拒绝客户端 {address}",
                     flush=True,
                 )
                 try:

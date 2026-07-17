@@ -35,6 +35,7 @@ from aimilivpn.system.console_routes import (
     INDEX_HTML,
     LOGIN_HTML,
     Handler,
+    global_console_runtime,
     instance_state,
     sessions,
     stripped_nodes,
@@ -94,7 +95,12 @@ def main() -> None:
         ),
         flush=True,
     )
-    BoundedThreadingHTTPServer((host, port), Handler).serve_forever()
+    global_runtime = global_console_runtime()
+    global_runtime.start()
+    try:
+        BoundedThreadingHTTPServer((host, port), Handler).serve_forever()
+    finally:
+        global_runtime.stop()
 
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ class MonitoringRuntime:
             err_msg = f"周期节点同步任务执行异常: {exc}"
             self.print_line(f"[错误] {err_msg}")
             self.log_line("ERROR", "Main", err_msg)
-            self.set_state(last_check_at=self.now(), last_check_message="background node maintenance failed")
+            self.set_state(last_check_at=self.now(), last_check_message="后台节点维护失败")
 
         return collector_sleep_seconds(
             active_running=self.active_openvpn_running(),
@@ -95,13 +95,13 @@ class MonitoringRuntime:
                 self.log_line(
                     "INFO",
                     "Proxy",
-                    f"Proxy OK, IP: {result.get('ip', '')}, latency: {result.get('latency_ms', 0)} ms",
+                    f"代理正常，出口 IP: {result.get('ip', '')}，延迟: {result.get('latency_ms', 0)} ms",
                 )
             else:
                 self._handle_proxy_failure(str(result.get("error", "unknown error")))
         except Exception as exc:
-            self.print_line(f"[ERROR] background_proxy_checker error: {exc}")
-            self.log_line("ERROR", "Proxy", f"Proxy checker exception: {exc}")
+            self.print_line(f"[错误] 后台代理检测异常: {exc}")
+            self.log_line("ERROR", "Proxy", f"代理检测异常: {exc}")
         return 30
 
     def run_active_node_ping_cycle(self) -> int:
@@ -117,13 +117,13 @@ class MonitoringRuntime:
                 nodes=nodes,
                 ping_latency_ms=self.ping_latency_ms,
                 parse_int=self.parse_int,
-                timeout_label="????",
-                connecting_label="???...",
-                idle_label="?????",
+                timeout_label="检测超时",
+                connecting_label="正在检测...",
+                idle_label="无活动连接",
             )
             self.set_state(active_node_latency=latency_status)
         except Exception as exc:
-            self.print_line(f"[ERROR] active_node_pinger error: {exc}")
+            self.print_line(f"[错误] 当前节点延迟检测异常: {exc}")
         return 10
 
     def active_node_pinger_loop(self) -> None:
@@ -136,23 +136,23 @@ class MonitoringRuntime:
         if not active_node_id:
             return
 
-        self.print_line(f"[Proxy] Local proxy unavailable on port {self.proxy_port()}: {error_msg}")
-        self.log_line("WARNING", "Proxy", f"Proxy unavailable: {error_msg}")
+        self.print_line(f"[代理] 本地代理端口 {self.proxy_port()} 不可用: {error_msg}")
+        self.log_line("WARNING", "Proxy", f"代理不可用: {error_msg}")
 
         routing_mode = str(self.load_ui_config().get("routing_mode") or "auto")
         if should_auto_switch_after_proxy_failure(active_node_id, routing_mode):
             self._mark_active_node_proxy_failed(active_node_id, error_msg)
             self.auto_switch_node()
         elif should_restart_fixed_node_after_proxy_failure(active_node_id, routing_mode):
-            self.print_line(f"[Proxy] Fixed IP mode proxy check failed; restarting node: {active_node_id}")
+            self.print_line(f"[代理] 固定 IP 模式代理检测失败，正在重启节点: {active_node_id}")
             self.set_is_connecting(False)
             try:
                 self.connect_node(active_node_id)
             except Exception as exc:
-                self.print_line(f"[Proxy] Failed to restart fixed node: {exc}")
+                self.print_line(f"[代理] 重启固定节点失败: {exc}")
 
     def _mark_active_node_proxy_failed(self, active_node_id: str, error_msg: str) -> None:
-        failure_message = f"Proxy connectivity check failed: {error_msg}"
+        failure_message = f"代理连通性检测失败: {error_msg}"
 
         def update_nodes() -> None:
             nodes = self.read_nodes()

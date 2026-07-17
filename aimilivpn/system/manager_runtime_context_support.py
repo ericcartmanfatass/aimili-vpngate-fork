@@ -18,8 +18,8 @@ from aimilivpn.system.manager_helpers import parse_int, safe_name
 
 def build_thread_runtime(ctx: object) -> None:
     def report_thread_error(name: str, exc: BaseException) -> None:
-        print(f"[runtime] background task {name} failed: {type(exc).__name__}", flush=True)
-        ctx.set_connection_phase(ConnectionPhase.FAILED, f"background task {name} failed", "")
+        print(f"[运行时] 后台任务 {name} 失败: {type(exc).__name__}", flush=True)
+        ctx.set_connection_phase(ConnectionPhase.FAILED, f"后台任务 {name} 失败", "")
 
     ctx.manager_thread_runtime = wiring.build_thread_runtime(wiring.ThreadRuntimeWiring(
         lock=ctx.lock,
@@ -93,6 +93,9 @@ def build_fetch_runtime(ctx: object) -> None:
         safe_name=safe_name,
         now=time.time,
         blacklist_repository=ctx.manager_repository_runtime.facade(),
+        global_nodes_file=ctx.global_nodes_file,
+        get_state=ctx.get_state,
+        global_retry_backoff_seconds=ctx.instance_retry_backoff_seconds,
     ))
     ctx.vpngate_fetch_facade = ctx.manager_fetch_runtime.facade
     ctx.fetch_api_text_via_proxy = ctx.manager_fetch_runtime.fetch_api_text_via_proxy

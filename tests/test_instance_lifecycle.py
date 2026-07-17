@@ -159,7 +159,7 @@ class InstanceLifecycleTests(unittest.TestCase):
             runner = FakeSystemctl(("enable", "--now", "aimilivpn@kr.service"))
             lifecycle = build_lifecycle(root, runner)
 
-            with self.assertRaisesRegex(LifecycleError, "managed service operation failed"):
+            with self.assertRaisesRegex(LifecycleError, "服务操作失败"):
                 lifecycle.create("KR")
 
             self.assertFalse((lifecycle.config_dir / "kr.env").exists())
@@ -222,7 +222,7 @@ class InstanceLifecycleTests(unittest.TestCase):
             (data_dir / "nodes.json").write_text("[]", encoding="utf-8")
             runner.fail_on = ("daemon-reload",)
 
-            with self.assertRaisesRegex(LifecycleError, "managed service operation failed"):
+            with self.assertRaisesRegex(LifecycleError, "服务操作失败"):
                 lifecycle.delete(
                     "us",
                     confirmation="us",

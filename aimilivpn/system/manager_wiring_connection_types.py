@@ -52,6 +52,8 @@ class ConnectionRuntimeWiring:
     node_test_workers: Callable[[], int]
     exclude_datacenter: Callable[[], bool]
     set_connection_phase: Callable[[ConnectionPhase | str, str, str], None]
+    wait_for_stop: Callable[[float], bool] | None = None
+    instance_retry_backoff_seconds: tuple[int, ...] = (60, 300, 900, 1800)
 
 
 @dataclass(frozen=True)

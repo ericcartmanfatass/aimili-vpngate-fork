@@ -17,7 +17,7 @@ def handle_page_get(handler: Any, effective_path: str, context: PageRouteContext
                 "text/html; charset=utf-8",
             )
             return True
-        handler.send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+        handler.send_json({"error": "未授权"}, HTTPStatus.UNAUTHORIZED)
         return True
 
     if effective_path in ("/", "/index.html"):
@@ -32,10 +32,10 @@ def handle_page_get(handler: Any, effective_path: str, context: PageRouteContext
         try:
             asset = get_static_asset(asset_path)
         except ValueError:
-            handler.send_json({"error": "invalid static path"}, HTTPStatus.BAD_REQUEST)
+            handler.send_json({"error": "静态资源路径无效"}, HTTPStatus.BAD_REQUEST)
             return True
         if asset is None:
-            handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            handler.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
             return True
         handler.send_bytes(asset, guess_content_type(asset_path))
         return True

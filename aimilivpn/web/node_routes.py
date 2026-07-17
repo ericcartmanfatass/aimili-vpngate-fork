@@ -32,7 +32,7 @@ def handle_node_get(handler: Any, effective_path: str, context: NodeRouteContext
         try:
             nodes = context.filter_nodes_by_region(nodes, region_id)
         except KeyError:
-            handler.send_json({"error": "region not found"}, HTTPStatus.NOT_FOUND)
+            handler.send_json({"error": "地区不存在"}, HTTPStatus.NOT_FOUND)
             return True
     country = query.filters.get("country", "").upper()
     status = query.filters.get("status", "")
@@ -244,7 +244,7 @@ def _handle_operation_get(handler: Any, effective_path: str, context: NodeRouteC
     operation_id = effective_path.removeprefix("/api/v1/operations/").strip()
     operation = context.get_operation(operation_id)
     if operation is None:
-        handler.send_json({"ok": False, "error": "operation not found", "error_code": "operation_not_found"}, HTTPStatus.NOT_FOUND)
+        handler.send_json({"ok": False, "error": "操作不存在", "error_code": "operation_not_found"}, HTTPStatus.NOT_FOUND)
     else:
         handler.send_json({"ok": True, "operation": operation})
     return True

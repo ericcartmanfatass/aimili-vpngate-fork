@@ -129,7 +129,7 @@ async function recheckQualityFromModal(id, event) {
     const updatedNode = nodes.find(n => n && n.id === id);
     body.innerHTML = `
       ${renderQualityDetails(updatedNode, null)}
-      <div class="message-box error" style="margin-top: 12px;">Quality check failed. Please try again later.</div>
+      <div class="message-box error" style="margin-top: 12px;">质量检测失败，请稍后重试。</div>
     `;
   }
 }

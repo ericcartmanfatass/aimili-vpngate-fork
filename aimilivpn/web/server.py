@@ -139,12 +139,12 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
             callback()
         except RequestBodyTooLarge:
             self.send_json(
-                {"ok": False, "error": "request body too large", "error_code": "request_too_large"},
+                {"ok": False, "error": "请求内容过大", "error_code": "request_too_large"},
                 HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
             )
         except (InvalidRequestBody, json.JSONDecodeError, UnicodeDecodeError):
             self.send_json(
-                {"ok": False, "error": "invalid request body", "error_code": "invalid_request"},
+                {"ok": False, "error": "请求内容无效", "error_code": "invalid_request"},
                 HTTPStatus.BAD_REQUEST,
             )
         except OSError as exc:

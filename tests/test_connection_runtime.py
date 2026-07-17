@@ -121,7 +121,7 @@ class ActiveConnectionRuntimeFacadeTests(unittest.TestCase):
             load_ui_config=lambda: {},
         )
 
-        with self.assertRaisesRegex(ValueError, "outside this instance allowed countries"):
+        with self.assertRaisesRegex(ValueError, "不属于此实例允许的国家"):
             facade.prepare_target(
                 "node-1",
                 node_matches_allowed=lambda item: False,
@@ -162,7 +162,7 @@ class ActiveConnectionRuntimeFacadeTests(unittest.TestCase):
         self.assertEqual(messages, ["failed node-1: AUTH_FAILED"])
         self.assertEqual(states[0]["active_openvpn_node_id"], "")
         self.assertEqual(states[0]["is_connecting"], False)
-        self.assertEqual(states[0]["last_check_message"], "连接失败: connection could not be established")
+        self.assertEqual(states[0]["last_check_message"], "连接失败: 无法建立连接")
 
     def test_register_active_process_returns_process_and_node_id(self) -> None:
         process = FakeProcess()

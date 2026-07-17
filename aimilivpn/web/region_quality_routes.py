@@ -38,11 +38,11 @@ def handle_region_quality_get(handler: Any, effective_path: str, context: Region
     if effective_path.startswith("/api/regions/"):
         parts = effective_path.strip("/").split("/")
         if len(parts) != 3:
-            handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            handler.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
             return True
         region = context.region_repository.get(parts[2])
         if region is None:
-            handler.send_json({"error": "region not found"}, HTTPStatus.NOT_FOUND)
+            handler.send_json({"error": "地区不存在"}, HTTPStatus.NOT_FOUND)
             return True
         handler.send_json({"region": region_to_dict(region)})
         return True
@@ -68,7 +68,7 @@ def handle_region_quality_get(handler: Any, effective_path: str, context: Region
         if node_id:
             quality = context.latest_quality_for_node(node_id)
             if quality is None:
-                handler.send_json({"ok": False, "error": "quality result not found"}, HTTPStatus.NOT_FOUND)
+                handler.send_json({"ok": False, "error": "质量结果不存在"}, HTTPStatus.NOT_FOUND)
                 return True
             handler.send_json({"ok": True, "quality": quality_to_dict(quality)})
             return True
@@ -113,7 +113,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             try:
                 region = context.region_repository.get(parts[2])
                 if region is None:
-                    handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
+                    handler.send_json({"ok": False, "error": "地区不存在"}, HTTPStatus.NOT_FOUND)
                     return True
                 preview = preview_region(region, context.read_nodes(), context.latest_quality_map())
                 handler.send_json({"ok": True, "preview": preview.__dict__})
@@ -122,7 +122,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             except Exception as exc:
                 send_api_error(handler, "region_operation_failed", exc=exc, operation="region preview")
             return True
-        handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        handler.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
         return True
 
     if effective_path == "/api/quality/check-node":
@@ -147,7 +147,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             quality = context.latest_quality_for_node(node_id)
             handler.send_json({"ok": True, "node": updated_node, "quality": quality_to_dict(quality)})
         except ValueError as exc:
-            send_client_error(handler, "node_not_found", "node not found", HTTPStatus.NOT_FOUND)
+            send_client_error(handler, "node_not_found", "节点不存在", HTTPStatus.NOT_FOUND)
         except Exception as exc:
             send_api_error(handler, "node_operation_failed", exc=exc, operation="quality node check")
         return True
@@ -199,7 +199,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
         except ValueError as exc:
             send_client_error(handler, "invalid_quality_request", "invalid quality request")
         except KeyError:
-            handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
+            handler.send_json({"ok": False, "error": "地区不存在"}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
             send_api_error(handler, "region_operation_failed", exc=exc, operation="quality region check")
         return True
@@ -212,14 +212,14 @@ def handle_region_put(handler: Any, effective_path: str, context: RegionQualityR
 
     parts = effective_path.strip("/").split("/")
     if len(parts) != 3 or parts[:2] != ["api", "regions"]:
-        handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        handler.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
         return True
 
     region_id = parts[2]
     try:
         existing = context.region_repository.get(region_id)
         if existing is None:
-            handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
+            handler.send_json({"ok": False, "error": "地区不存在"}, HTTPStatus.NOT_FOUND)
             return True
         payload = handler.read_json_body()
         payload["id"] = region_id
@@ -230,7 +230,7 @@ def handle_region_put(handler: Any, effective_path: str, context: RegionQualityR
     except (InvalidRegion, ValueError) as exc:
         send_client_error(handler, "invalid_region", "invalid region")
     except KeyError:
-        handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
+        handler.send_json({"ok": False, "error": "地区不存在"}, HTTPStatus.NOT_FOUND)
     except Exception as exc:
         send_api_error(handler, "region_operation_failed", exc=exc, operation="region update")
     return True
@@ -241,14 +241,14 @@ def handle_region_delete(handler: Any, effective_path: str, context: RegionQuali
 
     parts = effective_path.strip("/").split("/")
     if len(parts) != 3 or parts[:2] != ["api", "regions"]:
-        handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        handler.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
         return True
 
     try:
         context.region_repository.delete(parts[2])
         handler.send_json({"ok": True})
     except KeyError:
-        handler.send_json({"ok": False, "error": "region not found"}, HTTPStatus.NOT_FOUND)
+        handler.send_json({"ok": False, "error": "地区不存在"}, HTTPStatus.NOT_FOUND)
     except Exception as exc:
         send_api_error(handler, "region_operation_failed", exc=exc, operation="region delete")
     return True

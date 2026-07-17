@@ -34,6 +34,9 @@ CONFIG_ATTRIBUTES = (
     "allow_insecure_fetch",
     "storage_backend",
     "sqlite_db_path",
+    "global_config_dir",
+    "global_nodes_file",
+    "instance_retry_backoff_seconds",
 )
 
 PATH_ATTRIBUTES = (

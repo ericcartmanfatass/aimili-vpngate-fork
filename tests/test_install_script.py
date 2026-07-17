@@ -86,7 +86,7 @@ class InstallScriptTests(unittest.TestCase):
         self.assertNotIn('COUNTRIES="${COUNTRIES:-JP,US,KR}"', text)
         self.assertIn('systemctl enable --now "aimilivpn@${CC_LO}.service"', text)
         self.assertIn("PRESERVE_EXISTING_INSTANCES=1", text)
-        self.assertIn("Preserving ${#CC_LIST[@]} existing instance catalog entries", text)
+        self.assertIn("保留现有 ${#CC_LIST[@]} 个实例目录项", text)
 
     def test_local_source_sync_includes_package_directory(self) -> None:
         text = (ROOT / "install.sh").read_text(encoding="utf-8")
@@ -115,7 +115,7 @@ class InstallScriptTests(unittest.TestCase):
         self.assertNotIn('PASSWORD=$(python3 -c "import json;', text)
         self.assertNotIn("Console password: ${YELLOW}${CONSOLE_PASS}", text)
         self.assertNotIn("网页管理密码:  ${YELLOW}${PASSWORD}", text)
-        self.assertIn("Password status:", text)
+        self.assertIn("密码状态:", text)
         self.assertIn("ml password", text)
         self.assertIn("sudo ml password reset", text)
 
@@ -156,7 +156,7 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn('"runtime_before": runtime_before', text)
         self.assertLess(text.index("RP_FILTER_ALL_BEFORE="), text.index('systemctl enable --now "aimilivpn@'))
         self.assertIn('"dns_modified": False', text)
-        self.assertIn("leaving /etc/sysctl.conf untouched", text)
+        self.assertIn("不修改 /etc/sysctl.conf", text)
         self.assertNotIn(">> /etc/sysctl.conf", text)
         self.assertNotIn("sed -i 's/net.ipv4.conf", text)
 

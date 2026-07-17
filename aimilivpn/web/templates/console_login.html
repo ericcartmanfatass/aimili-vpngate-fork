@@ -1,6 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AimiliVPN Console Login</title>
+<title>AimiliVPN Console 登录</title>
 <style>
 body{margin:0;background:#101318;color:#eef2f7;font-family:Arial,sans-serif;display:grid;place-items:center;min-height:100vh}
 form{width:min(360px,calc(100vw - 32px));background:#171c24;border:1px solid #2b3442;border-radius:8px;padding:24px}
@@ -8,11 +8,11 @@ h1{font-size:22px;margin:0 0 18px}label{display:block;font-size:13px;color:#aab4
 input,button{box-sizing:border-box;width:100%;height:42px;border-radius:6px}input{background:#0f141b;border:1px solid #334155;color:#fff;padding:0 12px}
 button{margin-top:18px;border:0;background:#2f8cff;color:#fff;font-weight:700;cursor:pointer}.err{color:#ff7b7b;min-height:20px;font-size:13px}
 </style></head><body>
-<form id="consoleLoginForm"><h1>AimiliVPN Console</h1><div class="err" id="err"></div>
-<label for="u">Username</label><input id="u" autocomplete="username" required>
-<label for="p">Password</label><input id="p" type="password" autocomplete="current-password" required>
-<button>Login</button></form>
+<form id="consoleLoginForm"><h1>AimiliVPN Console 登录</h1><div class="err" id="err"></div>
+<label for="u">用户名</label><input id="u" autocomplete="username" required>
+<label for="p">密码</label><input id="p" type="password" autocomplete="current-password" required>
+<button>登录</button></form>
 <script>
-async function login(event){event.preventDefault();const error=document.getElementById('err');error.textContent='';const response=await fetch('./api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});if(response.ok){location.reload()}else{error.textContent='Login failed'}}
+async function login(event){event.preventDefault();const error=document.getElementById('err');error.textContent='';const response=await fetch('./api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});if(response.ok){location.reload()}else{error.textContent='登录失败'}}
 document.getElementById('consoleLoginForm').addEventListener('submit',login);
 </script></body></html>

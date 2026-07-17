@@ -114,7 +114,7 @@ async function checkRegionQuality(id) {
     const data = await response.json();
     if (!response.ok || !data.ok) {
       if (previewBox) {
-        previewBox.innerHTML = `<div class="message-box error">${esc(data.error || "Region quality check failed")}</div>`;
+        previewBox.innerHTML = `<div class="message-box error">${esc(data.error || "地区质量检测失败")}</div>`;
       }
       return;
     }
@@ -131,7 +131,7 @@ async function checkRegionQuality(id) {
     await load();
   } catch (e) {
     if (previewBox) {
-      previewBox.innerHTML = `<div class="message-box error">Region quality check failed. Please try again later.</div>`;
+      previewBox.innerHTML = `<div class="message-box error">地区质量检测失败，请稍后重试。</div>`;
     }
   } finally {
     checkingRegionIds.delete(id);

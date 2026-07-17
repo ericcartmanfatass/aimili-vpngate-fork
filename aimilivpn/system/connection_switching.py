@@ -57,7 +57,15 @@ def auto_switch_node(ctx: Any, attempt: int = 0) -> None:
             err_msg = auto_switch_retry_message(node_id, exc)
             ctx.print_line(f"[自动切换] {err_msg}")
             ctx.log_line("WARNING", "VPN", err_msg)
-            ctx.auto_switch_node(attempt + 1)
+            retry_delay = _retry_delay(ctx, attempt)
+            ctx.set_state(
+                connection_retry_level=attempt + 1,
+                next_connection_retry_at=ctx.now() + retry_delay,
+            )
+            if retry_delay > 0:
+                ctx.start_thread(lambda: _retry_after_backoff(ctx, attempt + 1, retry_delay))
+            else:
+                ctx.auto_switch_node(attempt + 1)
         return
 
     msg = auto_switch_no_candidate_message(
@@ -86,4 +94,21 @@ def auto_switch_node(ctx: Any, attempt: int = 0) -> None:
             ctx.print_line(f"[自动切换后台补齐] 获取并测试节点失败: {exc}")
 
     ctx.start_thread(bg_fetch_and_switch)
+
+
+def _retry_delay(ctx: Any, attempt: int) -> int:
+    values = tuple(getattr(ctx, "instance_retry_backoff_seconds", ()) or ())
+    if not values:
+        return 0
+    return max(0, int(values[min(max(0, attempt), len(values) - 1)]))
+
+
+def _retry_after_backoff(ctx: Any, attempt: int, delay: int) -> None:
+    wait_for_stop = getattr(ctx, "wait_for_stop", None)
+    if callable(wait_for_stop):
+        stopped = bool(wait_for_stop(delay))
+    else:
+        stopped = False
+    if not stopped:
+        ctx.auto_switch_node(attempt)
 

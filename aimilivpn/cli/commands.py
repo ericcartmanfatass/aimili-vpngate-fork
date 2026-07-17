@@ -65,20 +65,21 @@ def cmd_status(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.json:
         _write_payload(payload, True, stdout)
     else:
-        stdout.write(f"data_dir: {payload['data_dir']}\n")
-        stdout.write(f"ui: {payload['ui']}\n")
-        stdout.write(f"local_proxy: {payload['local_proxy']}\n")
-        stdout.write(f"active_node: {payload['active_node']}\n")
-        stdout.write(f"scamalytics_configured: {payload['scamalytics_configured']}\n")
+        stdout.write(f"数据目录: {payload['data_dir']}\n")
+        stdout.write(f"Web 地址: {payload['ui']}\n")
+        stdout.write(f"本地代理: {payload['local_proxy']}\n")
+        stdout.write(f"当前节点: {payload['active_node']}\n")
+        stdout.write(f"Scamalytics 已配置: {payload['scamalytics_configured']}\n")
         if instances:
-            stdout.write("\ninstances:\n")
+            stdout.write("\n实例:\n")
             _write_table(
                 instances,
                 ["id", "country", "data_dir", "ui", "local_proxy", "active_node", "connecting", "proxy_ok"],
                 stdout,
+                headers={"id": "ID", "country": "国家", "data_dir": "数据目录", "ui": "Web 地址", "local_proxy": "本地代理", "active_node": "当前节点", "connecting": "连接中", "proxy_ok": "代理正常"},
             )
-        stdout.write("\nservices:\n")
-        _write_table(services, ["service", "state"], stdout)
+        stdout.write("\n服务:\n")
+        _write_table(services, ["service", "state"], stdout, headers={"service": "服务", "state": "状态"})
     return 0
 
 
@@ -86,15 +87,15 @@ def cmd_service_action(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     action = args.command
     services = discover_services(ctx)
     if not services:
-        raise CliError("no AimiliVPN systemd services found")
+        raise CliError("未找到 AimiliVPN systemd 服务")
     failed: list[str] = []
     for service in services:
         result = ctx.runner(["systemctl", action, service])
         if result.returncode != 0:
             failed.append(service)
     if failed:
-        raise CliError(f"{action} failed for: {', '.join(failed)}")
-    stdout.write(f"{action} requested for {len(services)} service(s): {', '.join(services)}\n")
+        raise CliError(f"{action} 操作失败: {', '.join(failed)}")
+    stdout.write(f"已请求对 {len(services)} 个服务执行 {action}: {', '.join(services)}\n")
     return 0
 
 
@@ -112,7 +113,7 @@ def cmd_logs(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if result.stdout:
         stdout.write(result.stdout)
     if result.returncode != 0:
-        raise CliError("journalctl failed")
+        raise CliError("journalctl 执行失败")
     return 0
 
 
@@ -121,7 +122,7 @@ def cmd_web(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.json:
         _write_payload(payload, True, stdout)
     else:
-        _write_table(payload, ["name", "url", "username", "password_set"], stdout)
+        _write_table(payload, ["name", "url", "username", "password_set"], stdout, headers={"name": "名称", "url": "地址", "username": "用户名", "password_set": "已设置密码"})
     return 0
 
 
@@ -130,7 +131,7 @@ def cmd_port(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.json:
         _write_payload(rows, True, stdout)
     else:
-        _write_table(rows, ["name", "ui", "proxy", "tun_dev", "policy_table"], stdout)
+        _write_table(rows, ["name", "ui", "proxy", "tun_dev", "policy_table"], stdout, headers={"name": "名称", "ui": "Web 端口", "proxy": "代理端口", "tun_dev": "TUN 设备", "policy_table": "策略表"})
     return 0
 
 
@@ -139,7 +140,7 @@ def cmd_password(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.json:
         _write_payload(rows, True, stdout)
     else:
-        _write_table(rows, ["name", "username", "password_set", "secret_path", "note"], stdout)
+        _write_table(rows, ["name", "username", "password_set", "secret_path", "note"], stdout, headers={"name": "名称", "username": "用户名", "password_set": "已设置密码", "secret_path": "安全路径", "note": "说明"})
     return 0
 
 
@@ -147,7 +148,7 @@ def cmd_password_reset(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     auth_path = ctx.system_config_dir / "console_auth.json"
     auth = read_json_file(auth_path, None)
     if not isinstance(auth, dict) or not auth_path.exists():
-        raise CliError("console authentication config not found")
+        raise CliError("未找到 Console 身份验证配置")
 
     password = generate_password(24)
     updated = dict(auth)
@@ -157,23 +158,23 @@ def cmd_password_reset(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     try:
         write_private_json(auth_path, updated)
     except OSError as exc:
-        raise CliError("unable to update Console password; run this command as root") from exc
+        raise CliError("无法更新 Console 密码，请以 root 身份运行此命令") from exc
 
     result = ctx.runner(["systemctl", "restart", "aimilivpn-console.service"])
-    stdout.write("Console password reset. Save this one-time value now; it will not be shown again.\n")
-    stdout.write(f"password: {password}\n")
+    stdout.write("Console 密码已重置，请立即保存这次显示的密码；之后不会再次显示。\n")
+    stdout.write(f"密码: {password}\n")
     if result.returncode != 0:
-        raise CliError("password was updated but Console restart failed; restart aimilivpn-console.service manually")
+        raise CliError("密码已更新，但 Console 重启失败；请手动重启 aimilivpn-console.service")
     return 0
 
 
 def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if not args.yes:
-        raise CliError("uninstall requires --yes; data and source are preserved by default")
+        raise CliError("卸载需要 --yes；默认保留数据和源代码")
     if args.delete_data and not args.confirm_delete_data:
-        raise CliError("--delete-data requires --confirm-delete-data")
+        raise CliError("--delete-data 需要同时指定 --confirm-delete-data")
     if args.delete_source and not args.confirm_delete_source:
-        raise CliError("--delete-source requires --confirm-delete-source")
+        raise CliError("--delete-source 需要同时指定 --confirm-delete-source")
 
     instances = load_instances(ctx)
     runtime_sysctls = runtime_sysctls_for_uninstall(ctx)
@@ -223,10 +224,10 @@ def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
 
     ctx.runner(["systemctl", "daemon-reload"])
     ctx.runner(["systemctl", "reset-failed"])
-    stdout.write("AimiliVPN uninstall actions complete.\n")
-    stdout.write("Data preserved by default. Use --delete-data with confirmation to remove data.\n")
+    stdout.write("AimiliVPN 卸载操作已完成。\n")
+    stdout.write("默认保留数据；如需删除，请配合确认参数使用 --delete-data。\n")
     if removed:
-        stdout.write("Removed paths:\n")
+        stdout.write("已处理路径:\n")
         for path in removed:
             stdout.write(f"- {path}\n")
     return 0
@@ -246,7 +247,7 @@ def cmd_nodes_list(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.region:
         region = ctx.repositories.get(str(args.region))
         if region is None:
-            raise CliError(f"region not found: {args.region}")
+            raise CliError(f"未找到地区: {args.region}")
         nodes = [
             node for node in nodes
             if match_node(region, node, quality_by_node.get(str(node.get("id") or "")))
@@ -267,7 +268,7 @@ def cmd_nodes_list(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.json:
         _write_payload(rows, True, stdout)
     else:
-        _write_table(rows, ["id", "country", "ip", "latency_ms", "status", "quality_score", "risk_score", "label"], stdout)
+        _write_table(rows, ["id", "country", "ip", "latency_ms", "status", "quality_score", "risk_score", "label"], stdout, headers={"id": "ID", "country": "国家", "ip": "IP", "latency_ms": "延迟(ms)", "status": "状态", "quality_score": "质量分数", "risk_score": "风险分数", "label": "标签"})
     return 0
 
 
@@ -276,7 +277,7 @@ def cmd_regions_list(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.json:
         _write_payload(regions, True, stdout)
     else:
-        _write_table(regions, ["id", "name", "countries", "enabled", "min_quality", "max_risk"], stdout)
+        _write_table(regions, ["id", "name", "countries", "enabled", "min_quality", "max_risk"], stdout, headers={"id": "ID", "name": "名称", "countries": "国家", "enabled": "启用", "min_quality": "最低质量", "max_risk": "最高风险"})
     return 0
 
 
@@ -300,7 +301,7 @@ def cmd_quality_latest(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.node_id:
         result = ctx.repositories.latest_for_node(args.node_id)
         if result is None:
-            raise CliError(f"quality result not found: {args.node_id}")
+            raise CliError(f"未找到质量结果: {args.node_id}")
         payload = _quality_payload(result)
         _write_payload(payload, args.json, stdout)
         return 0
@@ -309,7 +310,7 @@ def cmd_quality_latest(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.json:
         _write_payload(rows, True, stdout)
     else:
-        _write_table(rows, ["node_id", "exit_ip", "score", "label", "risk_score", "risk_provider", "checked_at"], stdout)
+        _write_table(rows, ["node_id", "exit_ip", "score", "label", "risk_score", "risk_provider", "checked_at"], stdout, headers={"node_id": "节点 ID", "exit_ip": "出口 IP", "score": "质量分数", "label": "标签", "risk_score": "风险分数", "risk_provider": "风险来源", "checked_at": "检测时间"})
     return 0
 
 
@@ -472,7 +473,7 @@ def password_rows(ctx: CliContext) -> list[dict[str, Any]]:
             "username": entry["username"],
             "password_set": entry["password_set"],
             "secret_path": str(entry["url"]).rstrip("/").split("/")[-1] if entry.get("url") else "",
-            "note": "change in Web UI",
+            "note": "请在 Web UI 中修改",
         })
     return rows
 
@@ -592,8 +593,15 @@ def _write_payload(payload: Any, as_json: bool, stdout: TextIO) -> None:
         stdout.write(str(payload) + "\n")
 
 
-def _write_table(rows: list[dict[str, Any]], columns: list[str], stdout: TextIO) -> None:
-    stdout.write("\t".join(columns) + "\n")
+def _write_table(
+    rows: list[dict[str, Any]],
+    columns: list[str],
+    stdout: TextIO,
+    *,
+    headers: dict[str, str] | None = None,
+) -> None:
+    labels = headers or {}
+    stdout.write("\t".join(labels.get(column, column) for column in columns) + "\n")
     for row in rows:
         stdout.write("\t".join(str(row.get(column, "")) for column in columns) + "\n")
 

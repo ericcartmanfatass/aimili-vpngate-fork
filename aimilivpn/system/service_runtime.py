@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -9,19 +11,54 @@ from aimilivpn.system.startup import DaemonTask, build_initial_state
 
 
 class Tee:
-    def __init__(self, file_path: str, stdout: Any | None = None):
-        Path(file_path).parent.mkdir(exist_ok=True, parents=True)
-        self.file = open(file_path, "a", encoding="utf-8")
+    def __init__(
+        self,
+        file_path: str,
+        stdout: Any | None = None,
+        *,
+        max_bytes: int | None = None,
+        backup_count: int | None = None,
+    ):
+        self.file_path = Path(file_path)
+        self.file_path.parent.mkdir(exist_ok=True, parents=True)
+        configured_max_bytes = max_bytes if max_bytes is not None else os.environ.get("AIMILIVPN_LOG_MAX_BYTES", 10 * 1024 * 1024)
+        self.max_bytes = max(1, int(configured_max_bytes))
+        self.backup_count = max(1, int(backup_count or os.environ.get("AIMILIVPN_LOG_BACKUP_COUNT", 7)))
+        self.file = open(self.file_path, "a", encoding="utf-8")
         self.stdout = stdout if stdout is not None else sys.stdout
+        self._lock = threading.RLock()
 
     def write(self, data: str) -> None:
-        self.stdout.write(data)
-        self.file.write(data)
-        self.file.flush()
+        with self._lock:
+            self.stdout.write(data)
+            if self.file.tell() + len(data.encode("utf-8")) > self.max_bytes:
+                self._rotate()
+            self.file.write(data)
+            self.file.flush()
 
     def flush(self) -> None:
-        self.stdout.flush()
+        with self._lock:
+            self.stdout.flush()
+            self.file.flush()
+
+    def _rotate(self) -> None:
         self.file.flush()
+        self.file.close()
+        for index in range(self.backup_count - 1, 0, -1):
+            older = self.file_path.with_name(f"{self.file_path.name}.{index}")
+            newer = self.file_path.with_name(f"{self.file_path.name}.{index + 1}")
+            if older.exists():
+                try:
+                    older.replace(newer)
+                except OSError:
+                    pass
+        first = self.file_path.with_name(f"{self.file_path.name}.1")
+        if self.file_path.exists():
+            try:
+                self.file_path.replace(first)
+            except OSError:
+                pass
+        self.file = open(self.file_path, "a", encoding="utf-8")
 
     def isatty(self) -> bool:
         return self.stdout.isatty()

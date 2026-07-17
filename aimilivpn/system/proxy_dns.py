@@ -50,7 +50,7 @@ def dns_query_over_tun0(host: str, qtype: int, dns_server: str, timeout: float) 
                 )
             elif "no such device" in str(e).lower() or e.errno == 19:
                 print(
-                    f"[DNS bind failed] [ERR_ROUTE_DEV_NOT_FOUND] DNS bind to {bind_device_name()} failed: network device not found.",
+                    f"[DNS 绑定失败] [ERR_ROUTE_DEV_NOT_FOUND] DNS 无法绑定到 {bind_device_name()}：未找到网络设备。",
                     flush=True,
                 )
             return None
@@ -155,7 +155,7 @@ def create_connection(address: tuple[str, int], timeout: float = 20) -> socket.s
                 )
             elif "no such device" in str(e).lower() or e.errno == 19:
                 err = OSError(
-                    f"[ERR_ROUTE_DEV_NOT_FOUND] bind to virtual interface {bind_device_name()} failed: device not found."
+                    f"[ERR_ROUTE_DEV_NOT_FOUND] 无法绑定虚拟接口 {bind_device_name()}：未找到设备。"
                 )
             if sock is not None:
                 sock.close()

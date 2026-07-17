@@ -39,11 +39,11 @@ def service_action(service: str, action: str, *, instance_id: str | None = None)
         res = systemctl([action, service])
         if res.returncode == 0:
             return {"ok": True, "returncode": 0}
-        print(f"[console audit] service operation failed with return code {res.returncode}", flush=True)
-        return {"ok": False, "error": "service operation failed", "returncode": res.returncode}
+        print(f"[console audit] 服务操作失败，返回码 {res.returncode}", flush=True)
+        return {"ok": False, "error": "服务操作失败", "returncode": res.returncode}
     except Exception as exc:
         print(f"[console audit] service operation raised {type(exc).__name__}", flush=True)
-        return {"ok": False, "error": "service operation failed"}
+        return {"ok": False, "error": "服务操作失败"}
 
 
 def backend_request(
