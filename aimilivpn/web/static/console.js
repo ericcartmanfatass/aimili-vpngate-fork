@@ -32,7 +32,6 @@ function ensureGlobalTabs() {
   nodesTab.id = "tabGlobalNodes";
   const tasksTab = actionButton("任务与质量", "global-tasks", {}, "tab");
   tasksTab.id = "tabGlobalTasks";
-  tasksTab.textContent = "\\u4efb\\u52a1\\u4e0e\\u8d28\\u91cf";
   const logsTab = actionButton("日志与安全", "global-logs", {}, "tab");
   logsTab.id = "tabGlobalLogs";
   tabs.insertBefore(nodesTab, anchor || null);
@@ -214,7 +213,7 @@ function globalControlCard() {
   const card = dom("div", "card");
   const title = dom("div", "row");
   title.append(dom("h3", "", "全局任务"), dom("span", globalTask.status === "ok" ? "ok" : "muted", globalTask.status === "ok" ? "最近更新成功" : (globalTask.status || "未执行")));
-  const details = dom("div", "muted", `节点 ${globalTask.node_count || 0} 个 · 计划时间 ${formatTimestamp(globalTask.next_run_at)} · Scamalytics ${globalSettings.scalamalytics_enabled ? "已启用" : "未启用"}`);
+  const details = dom("div", "muted", `节点 ${globalTask.node_count || 0} 个 · 计划时间 ${formatTimestamp(globalTask.next_run_at)} · Scamalytics ${globalSettings.scamalytics_enabled ? "已启用" : "未启用"}`);
   const toolbar = dom("div", "toolbar");
   toolbar.append(
     actionButton("查看全局节点", "global-nodes"),
@@ -233,7 +232,7 @@ function globalControlCard() {
   const timezone = dom("input"); timezone.id = "globalVpnGateTimezone"; timezone.placeholder = "时区，例如 Asia/Shanghai"; timezone.value = globalSettings.vpn_gate_timezone || "local";
   const grace = dom("input"); grace.type = "number"; grace.min = "1"; grace.max = "168"; grace.id = "globalOldSnapshotGraceHours"; grace.placeholder = "旧快照宽限小时"; grace.value = globalSettings.old_snapshot_grace_hours || 48;
   settings.append(schedulerLabel, schedule, timezone, grace);
-  const enabled = dom("input"); enabled.type = "checkbox"; enabled.id = "globalScamalyticsEnabled"; enabled.checked = Boolean(globalSettings.scalamalytics_enabled);
+  const enabled = dom("input"); enabled.type = "checkbox"; enabled.id = "globalScamalyticsEnabled"; enabled.checked = Boolean(globalSettings.scamalytics_enabled);
   const label = dom("label", "muted", "启用 Scamalytics"); label.prepend(enabled);
   const username = dom("input"); username.id = "globalScamalyticsUsername"; username.placeholder = "用户名"; username.value = globalSettings.scalamalytics_username || "";
   const dailyQuota = dom("input"); dailyQuota.type = "number"; dailyQuota.min = "1"; dailyQuota.max = "1000000"; dailyQuota.id = "globalScamalyticsDailyQuota"; dailyQuota.placeholder = "每日请求配额"; dailyQuota.value = globalSettings.scalamalytics_daily_quota || 1000;

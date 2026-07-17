@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from aimilivpn.core.global_nodes import build_country_index, read_global_nodes
 from aimilivpn.system.console_config import CONFIG_DIR, INSTALL_DIR, INSTANCES_FILE, read_json
 
 
@@ -114,7 +115,12 @@ def load_instances() -> list[dict[str, Any]]:
 
 
 def load_available_country_catalog() -> list[dict[str, Any]]:
-    countries: dict[str, dict[str, Any]] = {}
+    global_nodes = read_global_nodes(INSTALL_DIR / "data" / "global" / "nodes.json")
+    countries: dict[str, dict[str, Any]] = {
+        code: dict(item)
+        for code, item in build_country_index(global_nodes).items()
+        if re.fullmatch(r"[A-Z]{2}", code)
+    }
     instances = load_instances()
     for instance in instances:
         path = Path(instance["data_dir"]) / "country_catalog.json"

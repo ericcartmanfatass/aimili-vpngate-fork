@@ -158,6 +158,14 @@ class StaticAssetsTests(unittest.TestCase):
         self.assertIn(b":root", css or b"")
         self.assertIn(b"let instanceList", js or b"")
 
+    def test_console_task_tab_uses_readable_chinese_label(self) -> None:
+        js = (get_static_asset("console.js") or b"").decode("utf-8")
+
+        self.assertIn('actionButton("任务与质量", "global-tasks"', js)
+        self.assertNotIn(r"\\u4efb\\u52a1\\u4e0e\\u8d28\\u91cf", js)
+        self.assertIn("globalSettings.scamalytics_enabled", js)
+        self.assertNotIn("globalSettings.scalamalytics_enabled", js)
+
     def test_get_static_asset_returns_fallback_for_missing_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(get_static_asset("missing.js", fallback=b"fallback", static_dir=Path(tmp)), b"fallback")

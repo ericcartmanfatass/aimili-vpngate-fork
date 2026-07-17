@@ -65,6 +65,38 @@ class ConsoleConfigTests(unittest.TestCase):
 
 
 class ConsoleInstanceTests(unittest.TestCase):
+    def test_available_country_catalog_reads_global_v102_snapshot_without_existing_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            global_dir = root / "data" / "global"
+            global_dir.mkdir(parents=True)
+            (global_dir / "nodes.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "nodes": [
+                            {"id": "de_1", "country_short": "DE", "country": "Germany"},
+                            {"id": "de_2", "country_short": "DE", "country": "Germany"},
+                            {"id": "fr_1", "country_short": "FR", "country": "France"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            instances_file = root / "instances.json"
+            instances_file.write_text(json.dumps({"instances": []}), encoding="utf-8")
+
+            with (
+                patch.object(console_instances, "CONFIG_DIR", root / "config"),
+                patch.object(console_instances, "INSTALL_DIR", root),
+                patch.object(console_instances, "INSTANCES_FILE", instances_file),
+            ):
+                catalog = console_instances.load_available_country_catalog()
+
+        by_country = {item["country"]: item for item in catalog}
+        self.assertEqual(by_country["DE"]["node_count"], 2)
+        self.assertEqual(by_country["FR"]["node_count"], 1)
+
     def test_load_instances_reads_instances_file_and_env_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
