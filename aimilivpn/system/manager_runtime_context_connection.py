@@ -56,6 +56,11 @@ def build_connection_runtime(ctx: object) -> None:
         node_test_workers=lambda: ctx.node_test_workers,
         exclude_datacenter=lambda: ctx.exclude_datacenter,
         set_connection_phase=ctx.set_connection_phase,
+        wait_for_stop=ctx.wait_for_stop,
+        instance_retry_backoff_seconds=ctx.instance_retry_backoff_seconds,
+        connection_candidate_limit=ctx.connection_candidate_limit,
+        mark_blacklisted=ctx.mark_blacklisted,
+        get_state=ctx.get_state,
     ))
     ctx.clear_active_connection_state = ctx.manager_connection_runtime.clear_active_connection_state
     ctx.get_is_connecting = ctx.manager_connection_runtime.get_is_connecting

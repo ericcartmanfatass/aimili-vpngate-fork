@@ -105,6 +105,10 @@ class ManagerRuntimeConfig:
     global_config_dir: Path = Path("config")
     global_nodes_file: Path = Path("global/nodes.json")
     instance_retry_backoff_seconds: tuple[int, ...] = DEFAULT_INSTANCE_RETRY_BACKOFF
+    connection_candidate_limit: int = 3
+    json_log_retention_days: int = 7
+    text_log_max_bytes: int = 10 * 1024 * 1024
+    text_log_backup_count: int = 7
 
 
 @dataclass(frozen=True)
@@ -143,6 +147,10 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
     global_config_dir = resolve_global_config_dir(resolved_root)
     global_settings_path, _ = global_config_paths(global_config_dir)
     instance_retry_backoff_seconds = DEFAULT_INSTANCE_RETRY_BACKOFF
+    connection_candidate_limit = 3
+    json_log_retention_days = 7
+    text_log_max_bytes = 10 * 1024 * 1024
+    text_log_backup_count = 7
     if global_settings_path.exists():
         global_settings = global_settings_for_runtime(global_config_dir)
         raw_backoff = global_settings.get("instance_retry_backoff_seconds")
@@ -150,6 +158,18 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
             instance_retry_backoff_seconds = tuple(
                 max(1, bounded_int(item, 1, 1, 86400 * 7)) for item in raw_backoff
             )
+        connection_candidate_limit = bounded_int(
+            global_settings.get("connection_candidate_limit"), 3, 1, 10
+        )
+        json_log_retention_days = bounded_int(
+            global_settings.get("json_log_retention_days"), 7, 1, 90
+        )
+        text_log_max_bytes = bounded_int(
+            global_settings.get("text_log_max_bytes"), 10 * 1024 * 1024, 1024, 1024 * 1024 * 1024
+        )
+        text_log_backup_count = bounded_int(
+            global_settings.get("text_log_backup_count"), 7, 1, 32
+        )
         app_config = replace(
             app_config,
             api_url=str(global_settings.get("vpn_gate_api_url") or app_config.api_url),
@@ -195,7 +215,7 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
         allowed_countries=app_config.allowed_countries,
         exclude_datacenter=env_bool("EXCLUDE_DATACENTER"),
         allow_insecure_fetch=app_config.allow_insecure_fetch,
-        storage_backend=env_choice("STORAGE_BACKEND", "json", {"json", "sqlite"}),
+        storage_backend=env_choice("STORAGE_BACKEND", "sqlite", {"json", "sqlite"}),
         sqlite_db_path=sqlite_db_path.resolve(),
         global_config_dir=global_config_dir,
         global_nodes_file=Path(
@@ -203,4 +223,8 @@ def load_manager_runtime_config(root_dir: Path) -> ManagerRuntimeConfig:
             or str(runtime_paths.data_dir.parent / "global" / "nodes.json")
         ).expanduser().resolve(),
         instance_retry_backoff_seconds=instance_retry_backoff_seconds,
+        connection_candidate_limit=connection_candidate_limit,
+        json_log_retention_days=json_log_retention_days,
+        text_log_max_bytes=text_log_max_bytes,
+        text_log_backup_count=text_log_backup_count,
     )

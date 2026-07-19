@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import secrets
 import string
 from dataclasses import dataclass
@@ -54,6 +55,10 @@ class UiConfigStore:
     def auth_file(self) -> Path:
         return self.data_dir / "ui_auth.json"
 
+    @property
+    def initial_password_file(self) -> Path:
+        return self.data_dir / "ui_initial_password"
+
     def default_config(self) -> dict[str, Any]:
         return {
             "username": "",
@@ -91,7 +96,7 @@ class UiConfigStore:
             )
             updated = updated or auth_changed
             if generated_password:
-                print(f"[Auth] Generated one-time Web UI password: {generated_password}", flush=True)
+                self._write_initial_credentials(str(config.get("username") or "admin"), generated_password)
 
             updated = self._normalize_ports(config) or updated
 
@@ -100,11 +105,34 @@ class UiConfigStore:
                     write_json_file(self.auth_file, config, self.lock)
                 except Exception:
                     pass
+            if generated_password:
+                print(f"[认证] 首次登录凭据已写入受限文件: {self.initial_password_file}", flush=True)
             return config
 
     def save(self, config: dict[str, Any]) -> None:
         migrated, _, _ = migrate_auth_config(config, password_factory=self.password_factory)
         write_json_file(self.auth_file, migrated, self.lock)
+        self.initial_password_file.unlink(missing_ok=True)
+
+    def _write_initial_credentials(self, username: str, password: str) -> None:
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        temporary = self.initial_password_file.with_name(
+            f".{self.initial_password_file.name}.{os.getpid()}.tmp"
+        )
+        temporary.write_text(
+            f"用户名: {username}\n一次性密码: {password}\n"
+            "请登录后立即修改密码，并删除此文件。\n",
+            encoding="utf-8",
+        )
+        try:
+            temporary.chmod(0o600)
+        except OSError:
+            pass
+        os.replace(temporary, self.initial_password_file)
+        try:
+            self.initial_password_file.chmod(0o600)
+        except OSError:
+            pass
 
     def _normalize_ports(self, config: dict[str, Any]) -> bool:
         updated = False

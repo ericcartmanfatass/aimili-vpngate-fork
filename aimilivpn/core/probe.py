@@ -126,7 +126,7 @@ def run_probe_batch(
             try:
                 updated_nodes[node_id] = future.result()
             except Exception as exc:
-                updated_nodes[node_id] = unavailable_probe_result(node_id, f"Test exception: {exc}")
+                updated_nodes[node_id] = unavailable_probe_result(node_id, f"节点测试异常；技术详情: {exc}")
     return updated_nodes
 
 

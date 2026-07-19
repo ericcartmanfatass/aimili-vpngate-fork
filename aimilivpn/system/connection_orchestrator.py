@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -60,13 +61,70 @@ class ConnectionOrchestrator:
     set_connection_phase: Callable[[ConnectionPhase | str, str, str], None] | None = None
     wait_for_stop: Callable[[float], bool] | None = None
     instance_retry_backoff_seconds: tuple[int, ...] = (60, 300, 900, 1800)
+    connection_candidate_limit: int = 3
+    mark_blacklisted: Callable[[dict[str, Any], str], None] | None = None
+    get_state: Callable[[], dict[str, Any]] | None = None
+    _switch_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _retry_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _retry_scheduled: bool = field(default=False, init=False, repr=False)
+    _retry_generation: int = field(default=0, init=False, repr=False)
+    _last_no_candidate_message: str = field(default="", init=False, repr=False)
 
     def transition(self, phase: ConnectionPhase, message: str = "", node_id: str = "") -> None:
         if self.set_connection_phase is not None:
             self.set_connection_phase(phase, message, node_id)
 
     def auto_switch_node(self, attempt: int = 0) -> None:
-        connection_switching.auto_switch_node(self, attempt)
+        if self.retry_scheduled():
+            if self.load_ui_config().get("connection_enabled", True):
+                return
+            self.cancel_retry_scheduled()
+        if not self._switch_lock.acquire(blocking=False):
+            return
+        try:
+            connection_switching.auto_switch_node(self, attempt)
+        finally:
+            self._switch_lock.release()
+
+    def retry_scheduled(self) -> bool:
+        with self._retry_lock:
+            return self._retry_scheduled
+
+    def mark_retry_scheduled(self) -> bool:
+        with self._retry_lock:
+            if self._retry_scheduled:
+                return False
+            self._retry_scheduled = True
+            self._retry_generation += 1
+            return True
+
+    def clear_retry_scheduled(self) -> None:
+        with self._retry_lock:
+            self._retry_scheduled = False
+
+    def cancel_retry_scheduled(self) -> None:
+        with self._retry_lock:
+            self._retry_scheduled = False
+            self._retry_generation += 1
+
+    def retry_generation(self) -> int:
+        with self._retry_lock:
+            return self._retry_generation
+
+    def retry_generation_is_current(self, generation: int) -> bool:
+        with self._retry_lock:
+            return generation == self._retry_generation
+
+    def should_log_no_candidate(self, message: str) -> bool:
+        with self._retry_lock:
+            if self._last_no_candidate_message == message:
+                return False
+            self._last_no_candidate_message = message
+            return True
+
+    def clear_no_candidate_suppression(self) -> None:
+        with self._retry_lock:
+            self._last_no_candidate_message = ""
 
     def connect_node(self, node_id: str) -> str:
         return connection_connect.connect_node(self, node_id)

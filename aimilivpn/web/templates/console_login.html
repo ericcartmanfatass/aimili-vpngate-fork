@@ -1,18 +1,51 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AimiliVPN Console 登录</title>
-<style>
-body{margin:0;background:#101318;color:#eef2f7;font-family:Arial,sans-serif;display:grid;place-items:center;min-height:100vh}
-form{width:min(360px,calc(100vw - 32px));background:#171c24;border:1px solid #2b3442;border-radius:8px;padding:24px}
-h1{font-size:22px;margin:0 0 18px}label{display:block;font-size:13px;color:#aab4c3;margin:12px 0 6px}
-input,button{box-sizing:border-box;width:100%;height:42px;border-radius:6px}input{background:#0f141b;border:1px solid #334155;color:#fff;padding:0 12px}
-button{margin-top:18px;border:0;background:#2f8cff;color:#fff;font-weight:700;cursor:pointer}.err{color:#ff7b7b;min-height:20px;font-size:13px}
-</style></head><body>
-<form id="consoleLoginForm"><h1>AimiliVPN Console 登录</h1><div class="err" id="err"></div>
-<label for="u">用户名</label><input id="u" autocomplete="username" required>
-<label for="p">密码</label><input id="p" type="password" autocomplete="current-password" required>
-<button>登录</button></form>
-<script>
-async function login(event){event.preventDefault();const error=document.getElementById('err');error.textContent='';const response=await fetch('./api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});if(response.ok){location.reload()}else{error.textContent='登录失败'}}
-document.getElementById('consoleLoginForm').addEventListener('submit',login);
-</script></body></html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AimiliVPN Console · 安全登录</title>
+  <style>
+    :root{color-scheme:dark;--bg:#060913;--surface:rgba(11,17,32,.64);--line:rgba(255,255,255,.08);--text:#f8fafc;--muted:#94a3b8;--primary:#8b5cf6;--red:#fb7185;--gradient:linear-gradient(135deg,#a78bfa,#7c3aed)}
+    *{box-sizing:border-box}body{min-height:100vh;margin:0;padding:24px;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 15% 0,rgba(124,58,237,.25),transparent 38%),radial-gradient(circle at 100% 100%,rgba(6,182,212,.13),transparent 34%),var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif}
+    body::before,body::after{content:'';position:fixed;width:420px;height:420px;border-radius:50%;filter:blur(140px);pointer-events:none;opacity:.18}body::before{top:-220px;left:-180px;background:#8b5cf6}body::after{right:-220px;bottom:-220px;background:#06b6d4}
+    form{position:relative;width:min(420px,100%);padding:38px;border:1px solid var(--line);border-radius:28px;background:var(--surface);box-shadow:0 28px 70px rgba(0,0,0,.42);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px)}
+    .mark{width:58px;height:58px;margin-bottom:24px;display:grid;place-items:center;border:1px solid rgba(167,139,250,.3);border-radius:18px;background:linear-gradient(135deg,rgba(167,139,250,.17),rgba(124,58,237,.08));color:#c4b5fd;box-shadow:0 12px 28px rgba(124,58,237,.2)}.mark svg{width:30px;height:30px}
+    h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.035em}h1 span{color:#c084fc}.subtitle{margin:6px 0 28px;color:var(--muted);font-size:13px}
+    label{display:block;margin:16px 0 7px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.02em}input{width:100%;height:48px;padding:0 14px;border:1px solid var(--line);border-radius:14px;background:rgba(6,10,20,.72);color:var(--text);font:500 14px inherit;outline:none;transition:.2s}input:focus{border-color:var(--primary);background:rgba(8,12,24,.94);box-shadow:0 0 0 4px rgba(139,92,246,.15)}
+    button{width:100%;height:48px;margin-top:24px;border:0;border-radius:14px;background:var(--gradient);color:#fff;font:700 14px inherit;cursor:pointer;box-shadow:0 10px 28px rgba(124,58,237,.3);transition:transform .16s ease,box-shadow .2s ease}button:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(124,58,237,.43)}button:active{transform:scale(.98)}button:disabled{opacity:.65;cursor:wait;transform:none}
+    .err{min-height:20px;margin-top:12px;color:var(--red);font-size:13px}.secure-note{margin:22px 0 0;padding-top:18px;border-top:1px solid var(--line);color:#526079;font-size:11px;text-align:center;letter-spacing:.04em}
+    @media(max-width:480px){body{padding:16px}form{padding:28px 22px;border-radius:22px}}
+    @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+  <form id="consoleLoginForm">
+    <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3 4.5 6.2v5.1c0 4.5 3.1 8.5 7.5 9.7 4.4-1.2 7.5-5.2 7.5-9.7V6.2L12 3Z"/><path stroke-linecap="round" stroke-linejoin="round" d="m8.8 12 2.1 2.1 4.4-4.5"/></svg></div>
+    <h1>AimiliVPN <span>Console</span></h1>
+    <p class="subtitle">登录全局 VPNGate 编排中心</p>
+    <div class="err" id="err" role="alert" aria-live="polite"></div>
+    <label for="u">用户名</label>
+    <input id="u" name="username" autocomplete="username" required autofocus>
+    <label for="p">密码</label>
+    <input id="p" name="password" type="password" autocomplete="current-password" required>
+    <button id="loginButton" type="submit">安全登录</button>
+    <p class="secure-note">安全管理会话 · AIMILIVPN 1.0.3</p>
+  </form>
+  <script>
+    async function login(event){
+      event.preventDefault();
+      const error=document.getElementById('err');
+      const button=document.getElementById('loginButton');
+      error.textContent='';button.disabled=true;button.textContent='正在验证…';
+      try{
+        const response=await fetch('./api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});
+        if(response.ok){location.reload();return}
+        error.textContent=response.status===429?'登录尝试过于频繁，请稍后再试':'用户名或密码错误';
+      }catch(_error){error.textContent='无法连接控制台服务，请稍后重试'}
+      finally{button.disabled=false;button.textContent='安全登录'}
+    }
+    document.getElementById('consoleLoginForm').addEventListener('submit',login);
+  </script>
+</body>
+</html>

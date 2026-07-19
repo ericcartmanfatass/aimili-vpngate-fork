@@ -25,7 +25,7 @@ def handle_node_get(handler: Any, effective_path: str, context: NodeRouteContext
             default_limit=200,
         )
     except InvalidListQuery:
-        send_client_error(handler, "invalid_query", "invalid list query")
+        send_client_error(handler, "invalid_query", "节点列表查询参数无效。")
         return True
     region_id = query.filters.get("region", "")
     if region_id:
@@ -124,7 +124,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             tested_nodes = context.test_multiple_nodes(node_ids)
             handler.send_json({"ok": True, "nodes": tested_nodes})
         except ValueError:
-            send_client_error(handler, "invalid_node_ids", "invalid node ids")
+            send_client_error(handler, "invalid_node_ids", "节点标识列表无效。")
         except Exception as exc:
             send_api_error(handler, "node_operation_failed", exc=exc, operation="node batch test")
         return True
@@ -144,7 +144,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             payload = handler.read_json_body()
             node_id = str(payload.get("id") or "").strip()
             if not node_id:
-                raise ValueError("node id is required")
+                raise ValueError("缺少节点标识")
             if context.submit_operation is not None:
                 return _submit_operation(
                     handler,
@@ -155,7 +155,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
                 )
             handler.send_json({"ok": True, "message": context.connect_node(node_id)})
         except ValueError:
-            send_client_error(handler, "invalid_node_request", "node id is required")
+            send_client_error(handler, "invalid_node_request", "缺少或无效的节点标识。")
         except Exception as exc:
             send_api_error(handler, "node_operation_failed", exc=exc, operation="connect")
         return True
@@ -165,7 +165,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             payload = handler.read_json_body()
             node_id = str(payload.get("id") or "").strip()
             if not node_id:
-                raise ValueError("node id is required")
+                raise ValueError("缺少节点标识")
             if context.submit_operation is not None:
                 return _submit_operation(
                     handler,
@@ -177,7 +177,7 @@ def handle_node_post(handler: Any, effective_path: str, context: NodeRouteContex
             updated_node = context.test_node_by_id(node_id)
             handler.send_json({"ok": True, "node": updated_node})
         except ValueError:
-            send_client_error(handler, "invalid_node_request", "node id is required")
+            send_client_error(handler, "invalid_node_request", "缺少或无效的节点标识。")
         except Exception as exc:
             send_api_error(handler, "node_operation_failed", exc=exc, operation="node test")
         return True
@@ -194,14 +194,14 @@ def _submit_operation(
 ) -> bool:
     explicit_key = str(getattr(handler, "headers", {}).get("X-Idempotency-Key", "") or "").strip()
     if len(explicit_key) > 128:
-        send_client_error(handler, "invalid_idempotency_key", "invalid idempotency key")
+        send_client_error(handler, "invalid_idempotency_key", "幂等键无效。")
         return True
     key = explicit_key or f"implicit:{kind}:{target}"
     assert context.submit_operation is not None
     try:
         operation, duplicate = context.submit_operation(kind, key, task, bool(explicit_key))
     except OperationCapacityError:
-        send_client_error(handler, "operation_capacity", "operation capacity reached", HTTPStatus.SERVICE_UNAVAILABLE)
+        send_client_error(handler, "operation_capacity", "操作队列已达到容量上限。", HTTPStatus.SERVICE_UNAVAILABLE)
         return True
     handler.send_json(
         {
@@ -217,7 +217,7 @@ def _submit_operation(
 
 def _handle_operation_get(handler: Any, effective_path: str, context: NodeRouteContext) -> bool:
     if context.get_operation is None or context.list_operations is None:
-        handler.send_json({"ok": False, "error": "operations unavailable", "error_code": "operations_unavailable"}, HTTPStatus.NOT_FOUND)
+        handler.send_json({"ok": False, "error": "操作队列当前不可用。", "error_code": "operations_unavailable"}, HTTPStatus.NOT_FOUND)
         return True
     if effective_path == "/api/v1/operations":
         try:
@@ -230,7 +230,7 @@ def _handle_operation_get(handler: Any, effective_path: str, context: NodeRouteC
                 default_limit=100,
             )
         except InvalidListQuery:
-            send_client_error(handler, "invalid_query", "invalid list query")
+            send_client_error(handler, "invalid_query", "节点列表查询参数无效。")
             return True
         operations = context.list_operations()
         for name in ("status", "kind"):
@@ -272,10 +272,10 @@ def _disconnect(context: NodeRouteContext) -> dict[str, Any]:
 
 def _validated_node_ids(value: Any) -> list[str]:
     if not isinstance(value, list) or not 1 <= len(value) <= 100:
-        raise ValueError("ids must contain 1-100 items")
+        raise ValueError("节点标识列表必须包含 1 到 100 项")
     node_ids = [str(item or "").strip() for item in value]
     if any(not node_id or len(node_id) > 128 for node_id in node_ids):
-        raise ValueError("invalid node id")
+        raise ValueError("节点标识无效")
     return list(dict.fromkeys(node_ids))
 
 

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from aimilivpn.core.global_nodes import build_country_index, read_global_nodes
 from aimilivpn.system.console_config import CONFIG_DIR, INSTALL_DIR, INSTANCES_FILE, read_json
 
 
@@ -57,15 +58,15 @@ def _proxy_url(host: Any, port: Any) -> str:
 def normalize_instance(item: dict[str, Any]) -> dict[str, Any]:
     iid = _first_text(item.get("id"), item.get("instance_id"), item.get("country")).lower()
     if not is_valid_instance_id(iid):
-        raise ValueError("invalid instance id")
+        raise ValueError("实例 ID 格式无效")
     expected_env_file = (CONFIG_DIR / f"{iid}.env").resolve(strict=False)
     env_file = Path(_first_text(item.get("env_file"), default=str(expected_env_file))).resolve(strict=False)
     if env_file != expected_env_file:
-        raise ValueError("instance env file is outside the managed configuration")
+        raise ValueError("实例环境配置文件不在受管目录内")
     expected_service = f"aimilivpn@{iid}.service"
     service = _first_text(item.get("service"), default=expected_service)
     if service != expected_service:
-        raise ValueError("instance service is not installer managed")
+        raise ValueError("实例服务不属于安装器管理范围")
     env = parse_env_file(env_file)
     country = _first_text(item.get("country"), env.get("ALLOWED_COUNTRIES"), default=iid).upper()
     data_dir = _first_text(item.get("data_dir"), env.get("VPNGATE_DATA_DIR"), default=str(INSTALL_DIR / "data" / iid))
@@ -100,7 +101,7 @@ def load_instances() -> list[dict[str, Any]]:
             try:
                 instances.append(normalize_instance(item))
             except ValueError as exc:
-                print(f"[console audit] rejected instance entry: {exc}", flush=True)
+                print(f"[Console 审计] 已拒绝无效实例记录；技术详情: {exc}", flush=True)
         return instances
 
     instances = []
@@ -109,12 +110,17 @@ def load_instances() -> list[dict[str, Any]]:
         try:
             instances.append(normalize_instance({"id": iid, "env_file": str(env_file)}))
         except ValueError as exc:
-            print(f"[console audit] rejected instance entry: {exc}", flush=True)
+            print(f"[Console 审计] 已拒绝无效实例记录；技术详情: {exc}", flush=True)
     return instances
 
 
 def load_available_country_catalog() -> list[dict[str, Any]]:
-    countries: dict[str, dict[str, Any]] = {}
+    global_nodes = read_global_nodes(INSTALL_DIR / "data" / "global" / "nodes.json")
+    countries: dict[str, dict[str, Any]] = {
+        code: dict(item)
+        for code, item in build_country_index(global_nodes).items()
+        if re.fullmatch(r"[A-Z]{2}", code)
+    }
     instances = load_instances()
     for instance in instances:
         path = Path(instance["data_dir"]) / "country_catalog.json"

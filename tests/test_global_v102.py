@@ -10,10 +10,25 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from aimilivpn.core.global_backup import BackupValidationError, build_backup_payload, preview_backup, validate_backup_payload
-from aimilivpn.core.global_config import GlobalConfigError, load_global_settings, public_global_settings, save_global_settings
+from aimilivpn.core.global_backup import (
+    BackupManager,
+    BackupRestoreError,
+    BackupValidationError,
+    build_backup_payload,
+    preview_backup,
+    validate_backup_payload,
+)
+from aimilivpn.core.global_config import (
+    GlobalConfigError,
+    load_global_secrets,
+    load_global_settings,
+    public_global_settings,
+    save_global_settings,
+)
 from aimilivpn.core.global_quality import QualityBatchProcessor
 from aimilivpn.core.global_storage import GlobalRepository
+from aimilivpn.cli.commands import storage_status
+from aimilivpn.core.storage import SqliteStore
 from aimilivpn.system.global_console import GlobalConsoleRuntime
 from aimilivpn.system.global_scheduler import GlobalScheduler
 from aimilivpn.system.service_runtime import Tee
@@ -57,10 +72,14 @@ class GlobalV102Tests(unittest.TestCase):
         self.assertNotIn("secret-key", json.dumps(public))
 
     def test_global_settings_reject_invalid_schedule_and_url(self) -> None:
-        with self.assertRaises(GlobalConfigError):
+        with self.assertRaises(GlobalConfigError) as schedule_error:
             save_global_settings(self.root, {"vpn_gate_schedule_time": "25:00"})
-        with self.assertRaises(GlobalConfigError):
+        self.assertEqual(schedule_error.exception.error_code, "GLOBAL_SETTING_INVALID_TIME")
+        self.assertEqual(schedule_error.exception.details["field"], "vpn_gate_schedule_time")
+        with self.assertRaises(GlobalConfigError) as url_error:
             save_global_settings(self.root, {"vpn_gate_api_url": "https://user:pass@example.test/api"})
+        self.assertEqual(url_error.exception.error_code, "GLOBAL_SETTING_UNSAFE_URL")
+        self.assertNotIn("pass", url_error.exception.details["technical_message"])
 
     def test_scheduler_deduplicates_ips_and_publishes_snapshot(self) -> None:
         published: list[list[dict[str, object]]] = []
@@ -156,6 +175,38 @@ class GlobalV102Tests(unittest.TestCase):
         unsafe = dict(payload)
         unsafe["instances"] = [{"id": "jp", "country": "JP", "service": "ssh.service"}]
         with self.assertRaises(BackupValidationError):
+            validate_backup_payload(unsafe)
+
+        with self.assertRaisesRegex(BackupValidationError, "备份类型"):
+            build_backup_payload(global_settings={}, instances=[], backup_type="unsafe")
+
+    def test_backup_preview_lists_added_modified_removed_and_ignored_items(self) -> None:
+        current = build_backup_payload(
+            global_settings={"vpn_gate_enabled": True},
+            instances=[{"id": "jp", "country": "JP"}, {"id": "us", "country": "US"}],
+            exported_at="2026-01-01T00:00:00Z",
+        )
+        candidate = build_backup_payload(
+            global_settings={"vpn_gate_enabled": False},
+            instances=[{"id": "jp", "country": "JP"}, {"id": "kr", "country": "KR"}],
+            exported_at="2026-02-01T00:00:00Z",
+        )
+
+        preview = preview_backup(current, candidate)
+
+        self.assertIn("global_settings.vpn_gate_enabled", {item["path"] for item in preview["modified"]})
+        self.assertIn("instances[kr]", {item["path"] for item in preview["added"]})
+        self.assertIn("instances[us]", {item["path"] for item in preview["removed"]})
+        self.assertTrue(preview["requires_deletion_confirmation"])
+        self.assertIn("sensitive_credentials", {item["path"] for item in preview["ignored"]})
+
+    def test_backup_rejects_unsupported_version_and_port_injection(self) -> None:
+        payload = build_backup_payload(global_settings={}, instances=[])
+        unsupported = dict(payload, app_version="9.9.9")
+        with self.assertRaisesRegex(BackupValidationError, "版本"):
+            validate_backup_payload(unsupported)
+        unsafe = dict(payload, instances=[{"id": "jp", "country": "JP", "proxy_port": 1}])
+        with self.assertRaisesRegex(BackupValidationError, "系统资源"):
             validate_backup_payload(unsafe)
 
     def test_text_log_rotates_by_size(self) -> None:
@@ -302,6 +353,7 @@ class GlobalV102Tests(unittest.TestCase):
         self.assertEqual(first.deferred, 1)
         self.assertEqual(repository.read_quality_metrics()["remaining"], 0)
         self.assertEqual(repository.read_quality_metrics()["requests"], 1)
+        self.assertEqual(repository.read_quality_metrics()["successes"], 1)
 
         now[0] = 87400.0
         second = processor.run(
@@ -350,7 +402,7 @@ class GlobalV102Tests(unittest.TestCase):
         )
 
         with patch("aimilivpn.system.global_console.load_instances", return_value=[]):
-            result = runtime.restore(candidate, confirmed=True)
+            result = runtime.restore(candidate, confirmed=True, confirm_deletions=True)
 
         self.assertTrue(result["ok"])
         self.assertEqual([item["id"] for item in repository.read_nodes()], ["new-1"])
@@ -358,9 +410,238 @@ class GlobalV102Tests(unittest.TestCase):
         self.assertEqual(repository.read_quality_queue(), [])
         self.assertEqual(repository.read_history()[0]["status"], "new")
         self.assertEqual(repository.read_quality_metrics()["remaining"], 17)
+        restore_status = json.loads(runtime.restore_status_path.read_text(encoding="utf-8"))
+        self.assertTrue(restore_status["ok"])
+        self.assertEqual(restore_status["checksum"], result["checksum"])
         restored_blacklist = json.loads((runtime.scheduler.snapshot_dir / "blacklist.json").read_text(encoding="utf-8"))
         self.assertEqual(restored_blacklist["new-1"]["reason"], "new")
         self.assertFalse((runtime.scheduler.snapshot_dir / "restored_business_data.json").exists())
+
+    def test_console_logs_report_backup_and_instance_storage_without_secrets(self) -> None:
+        config_dir = self.root / "status-config"
+        install_dir = self.root / "status-install"
+        scheduler = GlobalScheduler(config_dir, install_dir / "data", fetcher=lambda: api_text("203.0.113.9"))
+        runtime = GlobalConsoleRuntime(config_dir, install_dir, scheduler)
+        instance_dir = self.root / "jp-storage"
+        db_path = instance_dir / "aimilivpn.db"
+        store = SqliteStore(db_path)
+        store.write(instance_dir / "nodes.json", [{"id": "jp-1"}])
+        migration_dir = instance_dir / "json-backup-20260719T010203Z"
+        migration_dir.mkdir(parents=True)
+        (migration_dir / "migration-summary.json").write_text(
+            json.dumps(
+                {
+                    "backup_dir": str(migration_dir),
+                    "migrated_at": "2026-07-19T01:02:03Z",
+                    "result": "success",
+                    "documents": [
+                        {
+                            "kind": "nodes",
+                            "source": str(instance_dir / "nodes.json"),
+                            "count": 1,
+                            "checksum": "checksum-without-secret",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        catalog = [
+            {
+                "id": "jp",
+                "country": "JP",
+                "data_dir": str(instance_dir),
+                "env_file": str(self.root / "missing.env"),
+            }
+        ]
+        save_global_settings(
+            config_dir,
+            {"scamalytics_enabled": True, "scamalytics_username": "operator"},
+            scamalytics_api_key="do-not-leak-this-key",
+        )
+
+        with patch("aimilivpn.system.global_console.load_instances", return_value=catalog):
+            exported = runtime.export_backup("full")
+            status = runtime.logs_security()
+
+        security = status["security"]
+        self.assertEqual(security["latest_backup"]["path"], exported["path"])
+        self.assertTrue(security["latest_backup"]["validated"])
+        self.assertEqual(security["latest_backup"]["checksum"], exported["checksum"])
+        self.assertEqual(security["instance_storage"][0]["backend"], "sqlite")
+        self.assertTrue(security["instance_storage"][0]["ok"])
+        self.assertEqual(security["instance_storage"][0]["migration"]["total_count"], 1)
+        self.assertEqual(security["instance_storage"][0]["migration"]["migrated_at"], "2026-07-19T01:02:03Z")
+        self.assertEqual(security["instance_storage"][0]["migration"]["result"], "success")
+        self.assertEqual(
+            security["instance_storage"][0]["migration"]["documents"][0]["checksum"],
+            "checksum-without-secret",
+        )
+        serialized = json.dumps(status, ensure_ascii=False)
+        self.assertNotIn("config_text", serialized)
+        self.assertNotIn("do-not-leak-this-key", serialized)
+
+        cli_context = type(
+            "CliStorageContext",
+            (),
+            {"domain_store": store, "storage_backend": "sqlite", "migration_summary": None},
+        )()
+        self.assertEqual(
+            security["instance_storage"][0]["migration"],
+            storage_status(cli_context)["migration"],
+        )
+
+    def test_business_bundle_is_atomic_when_sqlite_restore_fails(self) -> None:
+        repository = GlobalRepository(self.root / "atomic" / "global", backend="sqlite")
+        repository.replace_nodes(
+            [{"id": "old-node", "server_ip": "203.0.113.1", "country_short": "JP"}],
+            updated_at=1000.0,
+        )
+        repository.upsert_quality("203.0.113.1", {"status": "ok", "risk_score": 10, "checked_at": 1000.0})
+        repository.enqueue_quality_ips(["203.0.113.1"], now=1000.0)
+        repository.append_history({"status": "old", "at": 1000.0})
+
+        original_set_metadata = GlobalRepository._set_metadata
+
+        def fail_during_restore(connection: object, name: str, value: object) -> None:
+            if name == "quality_metrics":
+                raise RuntimeError("injected storage failure")
+            original_set_metadata(connection, name, value)
+
+        with patch.object(GlobalRepository, "_set_metadata", side_effect=fail_during_restore):
+            with self.assertRaisesRegex(RuntimeError, "injected storage failure"):
+                repository.restore_business_bundle(
+                    nodes=[{"id": "new-node", "server_ip": "203.0.113.2", "country_short": "US"}],
+                    quality_results=[{"ip": "203.0.113.2", "status": "ok", "risk_score": 2}],
+                    quality_metrics={"requests": 1},
+                    history=[{"status": "new", "at": 2000.0}],
+                    task_state={"status": "restored"},
+                    updated_at=2000.0,
+                )
+
+        self.assertEqual([item["id"] for item in repository.read_nodes()], ["old-node"])
+        self.assertEqual(repository.read_quality()["203.0.113.1"]["risk_score"], 10)
+        self.assertEqual(repository.read_quality_queue()[0]["ip"], "203.0.113.1")
+        self.assertEqual(repository.read_history()[0]["status"], "old")
+
+    def test_restore_clears_old_api_key_and_restores_instance_preferences(self) -> None:
+        config_dir = self.root / "restore-config"
+        install_dir = self.root / "restore-install"
+        scheduler = GlobalScheduler(config_dir, install_dir / "data", fetcher=lambda: api_text("203.0.113.9"))
+        runtime = GlobalConsoleRuntime(config_dir, install_dir, scheduler)
+        instance_dir = self.root / "jp-data"
+        instance_dir.mkdir()
+        (instance_dir / "ui_auth.json").write_text(
+            json.dumps({"username": "admin", "routing_mode": "auto", "fixed_node_id": "old"}),
+            encoding="utf-8",
+        )
+        save_global_settings(
+            config_dir,
+            {"scamalytics_enabled": True},
+            scamalytics_api_key="old-secret",
+        )
+        candidate = build_backup_payload(
+            global_settings={"scamalytics_enabled": False},
+            instances=[
+                {
+                    "id": "jp",
+                    "country": "JP",
+                    "preferences": {
+                        "routing_mode": "fixed_region",
+                        "force_country": "US",
+                        "connection_enabled": False,
+                    },
+                }
+            ],
+            regions=[],
+        )
+        catalog = [{"id": "jp", "country": "JP", "data_dir": str(instance_dir)}]
+
+        with patch("aimilivpn.system.global_console.load_instances", return_value=catalog):
+            result = runtime.restore(candidate, confirmed=True, confirm_deletions=True)
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(load_global_secrets(config_dir)["scamalytics_api_key"])
+        restored = json.loads((instance_dir / "ui_auth.json").read_text(encoding="utf-8"))
+        self.assertEqual(restored["username"], "admin")
+        self.assertEqual(restored["routing_mode"], "fixed_region")
+        self.assertEqual(restored["force_country"], "US")
+        self.assertFalse(restored["connection_enabled"])
+
+    def test_backup_manager_reports_compensation_outcome(self) -> None:
+        manager = BackupManager(self.root / "backups")
+        current = build_backup_payload(global_settings={"vpn_gate_enabled": True}, instances=[])
+        candidate = build_backup_payload(global_settings={"vpn_gate_enabled": False}, instances=[])
+        rolled_back: list[dict[str, object]] = []
+
+        with self.assertRaises(BackupRestoreError) as context:
+            manager.restore(
+                candidate,
+                current=current,
+                apply=lambda document: (_ for _ in ()).throw(RuntimeError("apply failed")),
+                rollback=lambda document: rolled_back.append(document),
+            )
+
+        self.assertTrue(context.exception.rollback_succeeded)
+        self.assertEqual(context.exception.error_code, "restore_failed_rolled_back")
+        self.assertEqual(len(rolled_back), 1)
+
+    def test_console_persists_failed_restore_and_rollback_status(self) -> None:
+        config_dir = self.root / "failed-restore-config"
+        install_dir = self.root / "failed-restore-install"
+        scheduler = GlobalScheduler(config_dir, install_dir / "data", fetcher=lambda: api_text("203.0.113.9"))
+        runtime = GlobalConsoleRuntime(config_dir, install_dir, scheduler)
+        save_global_settings(config_dir, {"vpn_gate_enabled": True})
+        candidate = build_backup_payload(
+            global_settings={"vpn_gate_enabled": False},
+            instances=[],
+            regions=[],
+        )
+        calls = 0
+
+        def fail_once(_instances: list[dict[str, object]]) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("injected apply failure")
+
+        with patch("aimilivpn.system.global_console.load_instances", return_value=[]):
+            with self.assertRaises(BackupRestoreError) as context:
+                runtime.restore(
+                    candidate,
+                    confirmed=True,
+                    confirm_deletions=True,
+                    sync_instances=fail_once,
+                )
+
+        self.assertTrue(context.exception.rollback_succeeded)
+        receipt = json.loads(runtime.restore_status_path.read_text(encoding="utf-8"))
+        self.assertFalse(receipt["ok"])
+        self.assertTrue(receipt["rollback_succeeded"])
+        self.assertEqual(receipt["error_code"], "restore_failed_rolled_back")
+
+    def test_console_restore_requires_separate_deletion_confirmation(self) -> None:
+        config_dir = self.root / "delete-confirm-config"
+        install_dir = self.root / "delete-confirm-install"
+        scheduler = GlobalScheduler(config_dir, install_dir / "data", fetcher=lambda: api_text("203.0.113.9"))
+        runtime = GlobalConsoleRuntime(config_dir, install_dir, scheduler)
+        candidate = build_backup_payload(global_settings={}, instances=[], regions=[])
+        current_instances = [{"id": "jp", "country": "JP"}]
+
+        with patch("aimilivpn.system.global_console.load_instances", return_value=current_instances):
+            with self.assertRaisesRegex(GlobalConfigError, "单独确认"):
+                runtime.restore(candidate, confirmed=True)
+
+            synchronized: list[list[dict[str, object]]] = []
+            result = runtime.restore(
+                candidate,
+                confirmed=True,
+                confirm_deletions=True,
+                sync_instances=synchronized.append,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(synchronized, [[]])
 
 
 if __name__ == "__main__":

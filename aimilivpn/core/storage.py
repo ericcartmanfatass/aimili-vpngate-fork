@@ -51,10 +51,25 @@ class MigrationDocumentSummary:
 class MigrationSummary:
     backup_dir: str
     documents: tuple[MigrationDocumentSummary, ...]
+    migrated_at: str = ""
+    result: str = "success"
 
     @property
     def total_count(self) -> int:
         return sum(document.count for document in self.documents)
+
+
+def migration_summary_status(summary: MigrationSummary | None) -> dict[str, Any] | None:
+    """Serialize one migration receipt for the CLI and Console status APIs."""
+    if summary is None:
+        return None
+    return {
+        "backup_dir": summary.backup_dir,
+        "total_count": summary.total_count,
+        "migrated_at": summary.migrated_at,
+        "result": summary.result,
+        "documents": [asdict(document) for document in summary.documents],
+    }
 
 
 class JsonStore:
@@ -179,6 +194,74 @@ class SqliteStore:
                 return row is not None
             finally:
                 conn.close()
+
+    def health_status(self) -> dict[str, Any]:
+        """Return a small, secret-free SQLite health summary for operators."""
+        with self._lock:
+            conn: sqlite3.Connection | None = None
+            try:
+                conn = self._connect()
+                quick_check = str(conn.execute("PRAGMA quick_check").fetchone()[0])
+                document_count = int(conn.execute("SELECT COUNT(*) FROM json_documents").fetchone()[0])
+                return {
+                    "backend": "sqlite",
+                    "path": str(self.db_path),
+                    "ok": quick_check.lower() == "ok",
+                    "quick_check": quick_check,
+                    "document_count": document_count,
+                }
+            except (OSError, sqlite3.DatabaseError) as exc:
+                return {
+                    "backend": "sqlite",
+                    "path": str(self.db_path),
+                    "ok": False,
+                    "quick_check": "unavailable",
+                    "document_count": 0,
+                    "error_type": type(exc).__name__,
+                }
+            finally:
+                if conn is not None:
+                    conn.close()
+
+    def latest_migration_summary(self) -> MigrationSummary | None:
+        """Read the most recent persisted migration receipt, if one exists."""
+        candidates: list[tuple[float, Path]] = []
+        for path in self.db_path.parent.glob("json-backup-*/migration-summary.json"):
+            try:
+                candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        for updated_at, path in candidates:
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    continue
+                documents = raw.get("documents", [])
+                if not isinstance(documents, list):
+                    continue
+                parsed = tuple(
+                    MigrationDocumentSummary(
+                        kind=str(item["kind"]),
+                        source=str(item["source"]),
+                        count=int(item["count"]),
+                        checksum=str(item["checksum"]),
+                    )
+                    for item in documents
+                    if isinstance(item, dict)
+                )
+                migrated_at = str(raw.get("migrated_at") or "")
+                if not migrated_at:
+                    migrated_at = datetime.fromtimestamp(updated_at, timezone.utc).isoformat().replace("+00:00", "Z")
+                return MigrationSummary(
+                    backup_dir=str(raw.get("backup_dir") or path.parent),
+                    documents=parsed,
+                    migrated_at=migrated_at,
+                    result=str(raw.get("result") or "success"),
+                )
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, json.JSONDecodeError):
+                continue
+        return None
 
     def import_documents(self, documents: Mapping[Path, tuple[str, Any]]) -> None:
         prepared: list[tuple[str, str, int, str, str]] = []
@@ -332,7 +415,12 @@ def migrate_json_to_sqlite(
             shutil.copy2(metadata_path, backup_dir / metadata_path.name)
 
     sqlite_store.import_documents(pending)
-    summary = MigrationSummary(str(backup_dir), tuple(summaries))
+    summary = MigrationSummary(
+        backup_dir=str(backup_dir),
+        documents=tuple(summaries),
+        migrated_at=now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        result="success",
+    )
     sqlite_store.last_migration_summary = summary
     _atomic_json_write(backup_dir / "migration-summary.json", asdict(summary))
     return summary

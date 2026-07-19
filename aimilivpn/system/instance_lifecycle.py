@@ -24,11 +24,22 @@ LEGACY_COUNTRY_CATALOG = (
 
 
 class LifecycleError(RuntimeError):
-    def __init__(self, code: str, message: str, status: int = 400) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        status: int = 400,
+        *,
+        details: dict[str, Any] | None = None,
+        technical_message: str = "",
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.status = status
+        self.details = dict(details or {})
+        if technical_message:
+            self.details["technical_message"] = technical_message
 
 
 @dataclass(frozen=True)
@@ -79,27 +90,27 @@ class InstanceLifecycle:
         with self.lock:
             country = str(country or "").strip().upper()
             if not COUNTRY_CODE_PATTERN.fullmatch(country):
-                raise LifecycleError("invalid_country", "country must be an ISO alpha-2 code")
+                raise LifecycleError("invalid_country", "国家/地区代码必须使用两个大写字母。", details={"field": "country"})
             instances = self._instances()
             available = {item["country"] for item in self._country_entries(instances) if int(item.get("node_count") or 0) > 0}
             if country not in available:
-                raise LifecycleError("country_not_available", "country is not available in the current VPNGate catalog", 409)
+                raise LifecycleError("country_not_available", "当前 VPNGate 节点库中没有该国家/地区的可用节点。", 409, details={"country": country})
             expected_id = country.lower()
             requested_id = str(instance_id or expected_id).strip().lower()
             if requested_id != expected_id:
-                raise LifecycleError("invalid_instance_id", "instance id must match the country code")
+                raise LifecycleError("invalid_instance_id", "实例 ID 必须与国家/地区代码一致。", details={"field": "id", "expected": expected_id})
             if any(str(item.get("id") or "").lower() == requested_id for item in instances):
-                raise LifecycleError("instance_exists", "instance already exists", 409)
+                raise LifecycleError("instance_exists", "该实例已存在。", 409, details={"id": requested_id})
             env_file = self.config_dir / f"{requested_id}.env"
             if env_file.exists():
-                raise LifecycleError("resource_conflict", "managed environment file already exists", 409)
+                raise LifecycleError("resource_conflict", "实例配置文件与现有受管配置冲突。", 409, details={"id": requested_id})
             return self._allocate_resources(country, instances, check_host=True)
 
     def _country_entries(self, instances: list[dict[str, Any]]) -> list[dict[str, Any]]:
         try:
             raw_entries = list(self.country_catalog()) if self.country_catalog is not None else list(LEGACY_COUNTRY_CATALOG)
         except Exception as exc:
-            raise LifecycleError("country_catalog_unavailable", "VPNGate country catalog is unavailable", 503) from exc
+            raise LifecycleError("country_catalog_unavailable", "VPNGate 国家/地区目录暂时不可用。", 503) from exc
         entries: dict[str, dict[str, Any]] = {}
         for item in raw_entries:
             if not isinstance(item, dict):
@@ -163,10 +174,12 @@ class InstanceLifecycle:
         if last_host_conflicts:
             raise LifecycleError(
                 "resource_conflict",
-                f"host resource conflict: {', '.join(sorted(set(last_host_conflicts)))}",
+                "主机资源与现有配置冲突。",
                 409,
+                details={"resources": sorted(set(last_host_conflicts))},
+                technical_message="host resource conflict",
             )
-        raise LifecycleError("resource_capacity_exhausted", "no managed instance resources are available", 409)
+        raise LifecycleError("resource_capacity_exhausted", "没有可分配的受管实例资源。", 409)
 
     @staticmethod
     def _catalog_resource_conflicts(selected: dict[str, Any], instances: list[dict[str, Any]]) -> bool:
@@ -210,9 +223,9 @@ class InstanceLifecycle:
                 self._rollback_create(service, env_file, data_dir, data_created, previous_catalog)
                 if isinstance(exc, LifecycleError):
                     raise
-                print(f"[console audit] instance create failed: {type(exc).__name__}", flush=True)
-                raise LifecycleError("instance_create_failed", "instance creation failed", 500) from exc
-            print(f"[console audit] instance created id={instance_id} country={selected['country']}", flush=True)
+                print(f"[Console 审计] 实例创建失败；异常类型: {type(exc).__name__}", flush=True)
+                raise LifecycleError("instance_create_failed", "实例创建失败，已回滚未完成的变更。", 500) from exc
+            print(f"[Console 审计] 实例创建成功 id={instance_id} country={selected['country']}", flush=True)
             return dict(record)
 
     def delete(
@@ -225,9 +238,9 @@ class InstanceLifecycle:
     ) -> dict[str, Any]:
         instance_id = str(instance_id or "").strip().lower()
         if confirmation != instance_id:
-            raise LifecycleError("confirmation_required", "instance deletion confirmation is required")
+            raise LifecycleError("confirmation_required", "删除实例前必须输入实例 ID 进行确认。")
         if not retain_data and purge_data_confirmation != f"purge:{instance_id}":
-            raise LifecycleError("data_confirmation_required", "data deletion requires separate confirmation")
+            raise LifecycleError("data_confirmation_required", "永久删除实例数据需要单独确认。")
         with self.lock:
             instances = self._instances()
             record = next((item for item in instances if str(item.get("id") or "").lower() == instance_id), None)
@@ -236,11 +249,11 @@ class InstanceLifecycle:
             expected_env = (self.config_dir / f"{instance_id}.env").resolve(strict=False)
             env_file = Path(str(record.get("env_file") or expected_env)).resolve(strict=False)
             if env_file != expected_env:
-                raise LifecycleError("unmanaged_instance", "instance environment is not managed", 409)
+                raise LifecycleError("unmanaged_instance", "实例配置文件不属于受管路径，已拒绝操作。", 409)
             data_dir = Path(str(record.get("data_dir") or ""))
             expected_data = self.install_dir / "data" / instance_id
             if Path(os.path.abspath(data_dir)) != Path(os.path.abspath(expected_data)):
-                raise LifecycleError("unmanaged_instance", "instance data path is not managed", 409)
+                raise LifecycleError("unmanaged_instance", "实例数据目录不属于受管路径，已拒绝操作。", 409)
             self._validate_data_path(data_dir, instance_id)
             service = f"aimilivpn@{instance_id}.service"
             previous_catalog = self.instances_file.read_bytes()
@@ -250,7 +263,7 @@ class InstanceLifecycle:
                 self._systemctl_required(["disable", "--now", service])
                 if not retain_data and data_dir.exists():
                     if quarantine.exists():
-                        raise LifecycleError("data_cleanup_conflict", "data cleanup staging path exists", 409)
+                        raise LifecycleError("data_cleanup_conflict", "实例数据清理暂存目录已存在。", 409)
                     data_dir.replace(quarantine)
                 env_file.unlink(missing_ok=True)
                 self._write_instances([item for item in instances if item is not record])
@@ -270,10 +283,70 @@ class InstanceLifecycle:
                     pass
                 if isinstance(exc, LifecycleError):
                     raise
-                print(f"[console audit] instance delete failed: {type(exc).__name__}", flush=True)
-                raise LifecycleError("instance_delete_failed", "instance deletion failed", 500) from exc
-            print(f"[console audit] instance deleted id={instance_id} retain_data={retain_data}", flush=True)
+                print(f"[Console 审计] 实例删除失败；异常类型: {type(exc).__name__}", flush=True)
+                raise LifecycleError("instance_delete_failed", "实例删除失败，已尝试回滚。", 500) from exc
+            print(f"[Console 审计] 实例删除成功 id={instance_id} retain_data={retain_data}", flush=True)
             return {"id": instance_id, "deleted": True, "data_retained": retain_data, "data_dir": str(data_dir)}
+
+    def reconcile(self, desired_instances: list[dict[str, Any]]) -> dict[str, list[str]]:
+        """Synchronize a validated backup through the managed lifecycle APIs."""
+        desired: dict[str, str] = {}
+        for item in desired_instances:
+            if not isinstance(item, dict):
+                raise LifecycleError("invalid_restore_instances", "恢复实例清单格式无效")
+            instance_id = str(item.get("id") or "").strip().lower()
+            country = str(item.get("country") or "").strip().upper()
+            if not COUNTRY_CODE_PATTERN.fullmatch(country) or instance_id != country.lower():
+                raise LifecycleError("invalid_restore_instance", "恢复实例 ID 必须与国家代码一致")
+            if instance_id in desired:
+                raise LifecycleError("duplicate_restore_instance", "恢复实例 ID 不能重复")
+            desired[instance_id] = country
+
+        with self.lock:
+            current = self._instances()
+            current_by_id = {str(item.get("id") or "").lower(): item for item in current}
+            unchanged = sorted(
+                instance_id
+                for instance_id, country in desired.items()
+                if instance_id in current_by_id
+                and str(current_by_id[instance_id].get("country") or "").upper() == country
+            )
+            remove_ids = sorted(
+                instance_id
+                for instance_id, item in current_by_id.items()
+                if instance_id not in desired
+                or str(item.get("country") or "").upper() != desired.get(instance_id)
+            )
+            add_ids = sorted(
+                instance_id
+                for instance_id, country in desired.items()
+                if instance_id not in current_by_id
+                or str(current_by_id[instance_id].get("country") or "").upper() != country
+            )
+            removed: list[dict[str, Any]] = []
+            added: list[str] = []
+            try:
+                for instance_id in remove_ids:
+                    removed.append(dict(current_by_id[instance_id]))
+                    self.delete(instance_id, confirmation=instance_id, retain_data=True)
+                for instance_id in add_ids:
+                    self.create(desired[instance_id], instance_id)
+                    added.append(instance_id)
+            except Exception as exc:
+                for instance_id in reversed(added):
+                    try:
+                        self.delete(instance_id, confirmation=instance_id, retain_data=True)
+                    except Exception:
+                        pass
+                for record in removed:
+                    try:
+                        self.create(str(record.get("country") or ""), str(record.get("id") or ""))
+                    except Exception:
+                        pass
+                if isinstance(exc, LifecycleError):
+                    raise
+                raise LifecycleError("instance_restore_failed", "实例清单恢复失败，已尝试回滚。", 500) from exc
+            return {"added": add_ids, "removed": remove_ids, "unchanged": unchanged}
 
     def _instances(self) -> list[dict[str, Any]]:
         if not self.instances_file.exists():
@@ -281,26 +354,26 @@ class InstanceLifecycle:
         try:
             payload = json.loads(self.instances_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise LifecycleError("instance_catalog_invalid", "instance catalog is invalid", 500) from exc
+            raise LifecycleError("instance_catalog_invalid", "实例目录文件无效。", 500) from exc
         items = payload.get("instances") if isinstance(payload, dict) else None
         if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-            raise LifecycleError("instance_catalog_invalid", "instance catalog is invalid", 500)
+            raise LifecycleError("instance_catalog_invalid", "实例目录文件无效。", 500)
         return [dict(item) for item in items]
 
     def _read_token(self) -> str:
         try:
             token = self.token_file.read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise LifecycleError("instance_token_missing", "instance API token is unavailable", 500) from exc
+            raise LifecycleError("instance_token_missing", "实例 API 令牌不可用。", 500) from exc
         if not token or "\n" in token or "\r" in token:
-            raise LifecycleError("instance_token_invalid", "instance API token is invalid", 500)
+            raise LifecycleError("instance_token_invalid", "实例 API 令牌无效。", 500)
         return token
 
     def _validate_data_path(self, data_dir: Path, instance_id: str) -> None:
         base = (self.install_dir / "data").resolve(strict=False)
         expected = base / instance_id
         if data_dir.resolve(strict=False) != expected or data_dir.is_symlink():
-            raise LifecycleError("unmanaged_instance", "instance data path is not managed", 409)
+            raise LifecycleError("unmanaged_instance", "实例数据目录不属于受管路径，已拒绝操作。", 409)
 
     def _write_instances(self, instances: list[dict[str, Any]]) -> None:
         payload = json.dumps({"version": 1, "instances": instances}, ensure_ascii=False, indent=2)

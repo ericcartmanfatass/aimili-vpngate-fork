@@ -1,30 +1,22 @@
-# Security Notes
+# 安全说明
 
-## Trusted installation and lifecycle boundary
+## 可信安装与生命周期边界
 
-Remote installation is supported only from the fixed project repository and an
-explicit immutable release tag or full commit. Verify the published SHA-256
-before running the local installer; never pipe a moving branch into a shell.
-See [`docs/installation.md`](docs/installation.md).
+远程安装只支持固定项目仓库的不可变发布 Tag 或完整 commit。运行本地安装器前必须校验发布的
+SHA-256，禁止把移动分支通过管道直接交给 Shell。详见
+[`docs/installation.md`](docs/installation.md)。
 
-Release candidates also require the Linux matrix, manual boundary review,
-migration/rollback drill, and disposable-host lifecycle evidence defined in
-[`docs/release-acceptance.md`](docs/release-acceptance.md). Missing evidence is
-a release blocker, not a warning that can be waived by a Windows test run.
+发布候选还必须完成 [`docs/release-acceptance.md`](docs/release-acceptance.md) 定义的 Linux
+矩阵、人工边界审查、迁移/回滚演练和一次性主机生命周期证据。缺少证据属于发布阻断项，
+不能用 Windows 本地测试豁免。
 
-A fresh systemd install creates JP only. Additional countries can be created
-only when they appear with usable nodes in the latest server-side VPNGate
-country catalog and the request comes from an authenticated Console session.
-The backend allocates and validates all TUN, policy-table, port, path, and
-service ownership values. Instance environment files, the catalog, source
-metadata, and audit metadata use mode 0600. Browser input can provide only a
-catalog country code; it can never provide a unit filename, environment path,
-TUN device, policy table, or port.
+全新 systemd 安装只创建 JP。其他国家只有在最新服务端 VPNGate 目录中存在可用节点，且请求
+来自已认证 Console Session 时才能创建。后端分配并校验 TUN、策略路由表、端口、路径和服务
+归属；实例环境文件、目录、来源元数据和审计元数据使用 `0600`。浏览器只能提交目录国家代码，
+不能提交单元文件名、环境路径、TUN、策略表或端口。
 
-The backend unit is capability-bounded to `CAP_NET_ADMIN` and `CAP_NET_RAW`.
-The Console has an empty capability bounding set, a strict read-only filesystem
-outside explicit managed paths, private temporary storage, restricted address
-families/namespaces, and no privilege escalation.
+后端单元的 capability 限于 `CAP_NET_ADMIN` 和 `CAP_NET_RAW`。Console 的 capability
+bounding set 为空；受管路径之外严格只读，并启用私有临时目录、地址族/命名空间限制和禁止提权。
 
 ## 默认监听地址
 
@@ -42,8 +34,11 @@ Session token 和随机密码由 Python `secrets` 生成。
 
 随机 secret path 只用于降低无关扫描噪声，不是认证或传输安全措施。普通启动日志不应输出完整 secret-path URL；管理员可在需要时通过 `ml web` 主动查询。
 
-首次访问 Console 时，安装日志不会交付明文密码。管理员应在交互式终端中主动运行
-`sudo ml password reset`；新密码只在该终端显示一次，服务端认证文件仍只保存哈希。
+首次访问 Console 时，安装和启动日志不会交付明文密码。自动生成的一次性初始凭据原子写入
+`/etc/aimilivpn/console_initial_password`；实例 Web 凭据写入数据目录下的
+`ui_initial_password`。文件权限必须为 `0600`，日志只允许提示路径。保存新密码或执行
+`sudo ml password reset` 会删除旧的一次性文件；重置后的新密码只在当前交互终端显示一次，
+服务端认证配置始终只保存哈希。
 
 ## OpenVPN 配置
 
@@ -58,7 +53,7 @@ Scamalytics 等第三方 API key 只能保存在服务端的独立私有 secrets
 前端响应或备份。前端 API 只返回是否已配置和掩码；用户名可作为配置项显示，但不得与
 API key 一起作为秘密下发。保存新 key 时沿用旧 key，除非管理员明确提交新值。
 
-v1.0.2 的全局配置文件和全局数据库应保持 `0600`。完整业务备份只允许包含节点元数据、
+v1.0.3 的全局配置文件和全局数据库应保持 `0600`。完整业务备份只允许包含节点元数据、
 质量结果、黑名单、任务历史和非敏感设置；OpenVPN 正文、原始第三方响应、密码、Session、
 令牌、API key 和系统资源分配字段必须被排除。JSON backend 只是兼容/回退路径，不改变上述
 敏感字段边界。

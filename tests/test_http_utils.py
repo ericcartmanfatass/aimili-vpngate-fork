@@ -48,7 +48,13 @@ class HttpResponseMixinTests(unittest.TestCase):
 
         self.assertEqual(
             json.loads(handler.wfile.getvalue().decode("utf-8")),
-            {"ok": False, "error": "bad input", "error_code": "invalid_request"},
+            {
+                "ok": False,
+                "error": "bad input",
+                "message": "bad input",
+                "details": {},
+                "error_code": "invalid_request",
+            },
         )
 
     def test_read_request_body_uses_content_length(self) -> None:

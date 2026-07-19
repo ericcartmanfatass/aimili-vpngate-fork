@@ -97,6 +97,19 @@ class MonitoringRuntimeTests(unittest.TestCase):
         self.assertEqual(state["auto_switches"], 1)
         self.assertEqual(state["blacklisted"][0][0]["id"], "jp_1")
 
+    def test_fixed_ip_proxy_failure_enters_orchestrated_retry(self) -> None:
+        runtime, state = self.build_runtime(
+            proxy_result={"ok": False, "error": "down"},
+            active_node_id="jp_1",
+            routing_mode="fixed_ip",
+        )
+
+        runtime.run_proxy_checker_cycle()
+
+        self.assertEqual(state["auto_switches"], 1)
+        self.assertEqual(state["connects"], [])
+        self.assertIn("退避重试", state["messages"][-1])
+
     def test_proxy_checker_skips_while_connecting(self) -> None:
         runtime, state = self.build_runtime(connecting=True)
 

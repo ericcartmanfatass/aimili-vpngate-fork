@@ -164,7 +164,7 @@ class WebRequestHandlerTests(unittest.TestCase):
             handler._do_post()
 
         audit = output.getvalue()
-        self.assertIn("mutation method=POST path=/api/connect", audit)
+        self.assertIn("收到变更请求 method=POST path=/api/connect", audit)
         self.assertNotIn("password", audit)
 
 

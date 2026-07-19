@@ -101,13 +101,19 @@ class VpnGateServiceRuntime:
     set_stderr: Callable[[Any], None]
     shutdown_background_threads: Callable[[], None]
     stop_active_openvpn: Callable[[], None]
-    tee_factory: Callable[[str], Any] = Tee
+    text_log_max_bytes: Callable[[], int]
+    text_log_backup_count: Callable[[], int]
+    tee_factory: Callable[..., Any] = Tee
 
     def main(self) -> None:
         self.ensure_dirs()
         self.kill_existing_openvpn_processes()
 
-        tee = self.tee_factory(str(self.data_dir() / "vpngate.log"))
+        tee = self.tee_factory(
+            str(self.data_dir() / "vpngate.log"),
+            max_bytes=self.text_log_max_bytes(),
+            backup_count=self.text_log_backup_count(),
+        )
         self.set_stdout(tee)
         self.set_stderr(tee)
 

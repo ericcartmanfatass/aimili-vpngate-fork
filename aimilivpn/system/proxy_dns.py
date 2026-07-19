@@ -45,7 +45,7 @@ def dns_query_over_tun0(host: str, qtype: int, dns_server: str, timeout: float) 
         except OSError as e:
             if "operation not permitted" in str(e).lower() or e.errno == 1:
                 print(
-                    f"[DNS bind failed] [ERR_PROXY_BIND_TUN_PERM_DENIED] DNS bind to {bind_device_name()} failed: root or CAP_NET_RAW is required.",
+                    f"[DNS 绑定失败] [ERR_PROXY_BIND_TUN_PERM_DENIED] 无法绑定到 {bind_device_name()}：需要 root 或 CAP_NET_RAW 权限。",
                     flush=True,
                 )
             elif "no such device" in str(e).lower() or e.errno == 19:
@@ -151,7 +151,7 @@ def create_connection(address: tuple[str, int], timeout: float = 20) -> socket.s
             err = e
             if "operation not permitted" in str(e).lower() or e.errno == 1:
                 err = OSError(
-                    f"[ERR_PROXY_BIND_TUN_PERM_DENIED] bind to virtual interface {bind_device_name()} failed: root or CAP_NET_RAW is required."
+                    f"[ERR_PROXY_BIND_TUN_PERM_DENIED] 无法绑定到虚拟接口 {bind_device_name()}：需要 root 或 CAP_NET_RAW 权限。"
                 )
             elif "no such device" in str(e).lower() or e.errno == 19:
                 err = OSError(

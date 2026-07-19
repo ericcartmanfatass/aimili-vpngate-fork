@@ -99,7 +99,7 @@ def socks5_client(client: socket.socket, first_byte: bytes) -> None:
         try:
             upstream = create_connection((host, port), timeout=20)
         except Exception as e:
-            print(f"[SOCKS5 proxy failed] target {host}:{port} connection failed: {e}", flush=True)
+            print(f"[SOCKS5 代理失败] 无法连接目标 {host}:{port}；技术详情: {e}", flush=True)
             try:
                 client.sendall(b"\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00")
             except OSError:
@@ -193,7 +193,7 @@ def http_client(client: socket.socket, first_byte: bytes) -> None:
         upstream.sendall(request.encode("iso-8859-1") + rest)
         relay(client, upstream)
     except Exception as e:
-        print(f"[HTTP proxy failed] target connection failed: {e}", flush=True)
+        print(f"[HTTP 代理失败] 无法连接目标；技术详情: {e}", flush=True)
         try:
             client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
         except OSError:
@@ -215,7 +215,7 @@ def proxy_client(client: socket.socket, address: tuple[str, int]) -> None:
     except Exception as e:
         err_msg = str(e)
         if "[ERR_" in err_msg or "[閿欒浠ｇ爜" in err_msg:
-            print(f"[proxy client connection failed] client {address} encountered system obstruction: {err_msg}", flush=True)
+            print(f"[代理客户端失败] 客户端 {address} 遇到系统阻断；技术详情: {err_msg}", flush=True)
         try:
             client.close()
         except OSError:

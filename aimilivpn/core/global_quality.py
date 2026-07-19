@@ -125,6 +125,7 @@ class QualityBatchProcessor:
             try:
                 result = query(ip)
                 safe_result = self._safe_result(ip, result, now + self.cache_ttl_seconds)
+                metrics["successes"] = int(metrics.get("successes") or 0) + 1
                 if self.repository is not None:
                     self.repository.upsert_quality(ip, safe_result)
                     self.repository.remove_quality_queue(ip)
@@ -170,6 +171,7 @@ class QualityBatchProcessor:
                 "quota": self.daily_quota,
                 "cache_hits": 0,
                 "requests": 0,
+                "successes": 0,
                 "failures": 0,
                 "deferred": 0,
                 "remaining": self.daily_quota if self.daily_quota else None,

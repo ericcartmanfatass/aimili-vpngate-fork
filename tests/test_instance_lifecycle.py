@@ -78,7 +78,7 @@ class InstanceLifecycleTests(unittest.TestCase):
             lifecycle = build_lifecycle(Path(tmp), FakeSystemctl())
             lifecycle.create("JP")
 
-            with self.assertRaisesRegex(LifecycleError, "already exists"):
+            with self.assertRaisesRegex(LifecycleError, "实例已存在"):
                 lifecycle.create("JP")
 
             payload = json.loads(lifecycle.instances_file.read_text(encoding="utf-8"))
@@ -94,7 +94,7 @@ class InstanceLifecycleTests(unittest.TestCase):
             lifecycle = build_lifecycle(Path(tmp), FakeSystemctl())
             object.__setattr__(lifecycle, "resource_probe", lambda selected: ["ui_port"])
 
-            with self.assertRaisesRegex(LifecycleError, "host resource conflict: ui_port"):
+            with self.assertRaisesRegex(LifecycleError, "主机资源与现有配置冲突"):
                 lifecycle.create("US")
 
     def test_dynamic_catalog_uses_vpngate_countries_and_reserves_legacy_slots(self) -> None:
@@ -150,7 +150,7 @@ class InstanceLifecycleTests(unittest.TestCase):
                 [{"country": "DE", "name": "Germany", "node_count": 1}],
             )
 
-            with self.assertRaisesRegex(LifecycleError, "not available"):
+            with self.assertRaisesRegex(LifecycleError, "没有该国家/地区的可用节点"):
                 lifecycle.create("FR")
 
     def test_create_failure_rolls_back_catalog_env_and_empty_data(self) -> None:
@@ -188,7 +188,7 @@ class InstanceLifecycleTests(unittest.TestCase):
             created = lifecycle.create("KR")
             data_dir = Path(created["data_dir"])
 
-            with self.assertRaisesRegex(LifecycleError, "separate confirmation"):
+            with self.assertRaisesRegex(LifecycleError, "需要单独确认"):
                 lifecycle.delete("kr", confirmation="kr", retain_data=False)
 
             lifecycle.delete(
@@ -207,7 +207,7 @@ class InstanceLifecycleTests(unittest.TestCase):
             payload["instances"][0]["data_dir"] = str(Path(tmp) / "outside")
             lifecycle.instances_file.write_text(json.dumps(payload), encoding="utf-8")
 
-            with self.assertRaisesRegex(LifecycleError, "data path is not managed"):
+            with self.assertRaisesRegex(LifecycleError, "数据目录不属于受管路径"):
                 lifecycle.delete("kr", confirmation="kr")
 
             self.assertTrue(Path(created["env_file"]).exists())
@@ -235,6 +235,30 @@ class InstanceLifecycleTests(unittest.TestCase):
             catalog = json.loads(lifecycle.instances_file.read_text(encoding="utf-8"))
             self.assertEqual(catalog["instances"][0]["id"], "us")
             self.assertIn(["enable", "--now", "aimilivpn@us.service"], runner.calls)
+
+    def test_reconcile_uses_lifecycle_to_add_and_remove_instances(self) -> None:
+        with TemporaryDirectory() as tmp:
+            runner = FakeSystemctl()
+            lifecycle = build_lifecycle(Path(tmp), runner)
+            lifecycle.create("JP")
+            lifecycle.create("US")
+
+            result = lifecycle.reconcile(
+                [{"id": "jp", "country": "JP"}, {"id": "kr", "country": "KR"}]
+            )
+
+            catalog = json.loads(lifecycle.instances_file.read_text(encoding="utf-8"))["instances"]
+            self.assertEqual({item["id"] for item in catalog}, {"jp", "kr"})
+            self.assertEqual(result, {"added": ["kr"], "removed": ["us"], "unchanged": ["jp"]})
+            self.assertIn(["disable", "--now", "aimilivpn@us.service"], runner.calls)
+            self.assertIn(["enable", "--now", "aimilivpn@kr.service"], runner.calls)
+
+    def test_reconcile_rejects_system_resource_fields_and_mismatched_ids(self) -> None:
+        with TemporaryDirectory() as tmp:
+            lifecycle = build_lifecycle(Path(tmp), FakeSystemctl())
+
+            with self.assertRaisesRegex(LifecycleError, "国家代码一致"):
+                lifecycle.reconcile([{"id": "custom", "country": "JP", "proxy_port": 1}])
 
 
 if __name__ == "__main__":

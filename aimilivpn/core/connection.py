@@ -21,9 +21,9 @@ def auto_switch_no_candidate_message(
     if routing_mode == "fixed_region" and target_country:
         return (
             f"没有可用的【{routing_target_label(target_country)}】备用节点，"
-            "已断开连接，将在后台持续尝试获取新节点..."
+            "已进入等待全局节点库更新状态。"
         )
-    return "没有可用的备选节点，将自动断开并清理当前连接状态，同时在后台异步获取新节点..."
+    return "没有可用的备选节点，已进入等待全局节点库更新状态。"
 
 
 def auto_switch_retry_message(node_id: str, error: Exception) -> str:

@@ -21,13 +21,13 @@ def handle_region_quality_get(handler: Any, effective_path: str, context: Region
                 default_limit=100,
             )
         except InvalidListQuery:
-            send_client_error(handler, "invalid_query", "invalid list query")
+            send_client_error(handler, "invalid_query", "地区质量列表查询参数无效。")
             return True
         regions = [region_to_dict(region) for region in context.read_regions()]
         enabled = query.filters.get("enabled", "").lower()
         if enabled:
             if enabled not in {"true", "false"}:
-                send_client_error(handler, "invalid_query", "invalid list query")
+                send_client_error(handler, "invalid_query", "地区质量列表查询参数无效。")
                 return True
             regions = [region for region in regions if bool(region.get("enabled")) is (enabled == "true")]
         regions.sort(key=lambda region: str(region.get(query.sort) or "").lower(), reverse=query.order == "desc")
@@ -62,7 +62,7 @@ def handle_region_quality_get(handler: Any, effective_path: str, context: Region
                 default_limit=100,
             )
         except InvalidListQuery:
-            send_client_error(handler, "invalid_query", "invalid list query")
+            send_client_error(handler, "invalid_query", "地区质量列表查询参数无效。")
             return True
         node_id = query.filters.get("node_id", "")
         if node_id:
@@ -102,7 +102,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             saved_region = context.region_repository.get(region.id) or region
             handler.send_json({"ok": True, "region": region_to_dict(saved_region)}, HTTPStatus.CREATED)
         except (InvalidRegion, ValueError) as exc:
-            send_client_error(handler, "invalid_region", "invalid region")
+            send_client_error(handler, "invalid_region", "地区配置无效。")
         except Exception as exc:
             send_api_error(handler, "region_operation_failed", exc=exc, operation="region create")
         return True
@@ -118,7 +118,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
                 preview = preview_region(region, context.read_nodes(), context.latest_quality_map())
                 handler.send_json({"ok": True, "preview": preview.__dict__})
             except (InvalidRegion, ValueError) as exc:
-                send_client_error(handler, "invalid_region", "invalid region")
+                send_client_error(handler, "invalid_region", "地区配置无效。")
             except Exception as exc:
                 send_api_error(handler, "region_operation_failed", exc=exc, operation="region preview")
             return True
@@ -130,7 +130,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             payload = handler.read_json_body()
             node_id = str(payload.get("id") or payload.get("node_id") or "").strip()
             if not node_id:
-                handler.send_json({"ok": False, "error": "node_id is required"}, HTTPStatus.BAD_REQUEST)
+                handler.send_json({"ok": False, "error": "必须提供节点 ID。"}, HTTPStatus.BAD_REQUEST)
                 return True
             if context.submit_operation is not None:
                 return _submit_quality_operation(
@@ -157,7 +157,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             payload = handler.read_json_body()
             ip = str(payload.get("ip") or "").strip()
             if not ip:
-                raise ValueError("ip is required")
+                raise ValueError("必须提供 IP 地址")
             if context.submit_operation is not None:
                 return _submit_quality_operation(
                     handler,
@@ -169,7 +169,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
             result = context.check_quality_ip(ip)
             handler.send_json({"ok": True, "quality": quality_to_dict(result)})
         except ValueError as exc:
-            send_client_error(handler, "invalid_quality_request", "invalid quality request")
+            send_client_error(handler, "invalid_quality_request", "质量检测请求无效。")
         except context.scamalytics_errors as exc:
             send_api_error(
                 handler,
@@ -197,7 +197,7 @@ def handle_region_quality_post(handler: Any, effective_path: str, context: Regio
                 )
             handler.send_json({"ok": True, **context.check_quality_region(region_id, limit=limit)})
         except ValueError as exc:
-            send_client_error(handler, "invalid_quality_request", "invalid quality request")
+            send_client_error(handler, "invalid_quality_request", "质量检测请求无效。")
         except KeyError:
             handler.send_json({"ok": False, "error": "地区不存在"}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
@@ -228,7 +228,7 @@ def handle_region_put(handler: Any, effective_path: str, context: RegionQualityR
         saved_region = context.region_repository.get(region_id) or region
         handler.send_json({"ok": True, "region": region_to_dict(saved_region)})
     except (InvalidRegion, ValueError) as exc:
-        send_client_error(handler, "invalid_region", "invalid region")
+        send_client_error(handler, "invalid_region", "地区配置无效。")
     except KeyError:
         handler.send_json({"ok": False, "error": "地区不存在"}, HTTPStatus.NOT_FOUND)
     except Exception as exc:
@@ -263,14 +263,14 @@ def _submit_quality_operation(
 ) -> bool:
     explicit_key = str(getattr(handler, "headers", {}).get("X-Idempotency-Key", "") or "").strip()
     if len(explicit_key) > 128:
-        send_client_error(handler, "invalid_idempotency_key", "invalid idempotency key")
+        send_client_error(handler, "invalid_idempotency_key", "幂等键无效。")
         return True
     key = explicit_key or f"implicit:{kind}:{target}"
     assert context.submit_operation is not None
     try:
         operation, duplicate = context.submit_operation(kind, key, task, bool(explicit_key))
     except OperationCapacityError:
-        send_client_error(handler, "operation_capacity", "operation capacity reached", HTTPStatus.SERVICE_UNAVAILABLE)
+        send_client_error(handler, "operation_capacity", "操作队列已满，请稍后重试。", HTTPStatus.SERVICE_UNAVAILABLE)
         return True
     handler.send_json(
         {

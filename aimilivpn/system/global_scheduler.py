@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 from zoneinfo import ZoneInfo
 
-from aimilivpn.core.global_config import GlobalConfigError, GlobalSettings, load_global_settings
+from aimilivpn.core.global_config import APP_VERSION, GlobalConfigError, GlobalSettings, load_global_settings
 from aimilivpn.core.global_nodes import (
     GlobalNodeValidationError,
     build_country_index,
@@ -328,7 +328,7 @@ class GlobalScheduler:
     def _default_fetcher(self) -> str:
         request = urllib.request.Request(
             self.settings().vpn_gate_api_url,
-            headers={"User-Agent": "AimiliVPN/1.0.2", "Accept": "text/plain,*/*"},
+            headers={"User-Agent": f"AimiliVPN/{APP_VERSION}", "Accept": "text/plain,*/*"},
         )
         with urllib.request.urlopen(request, timeout=12) as response:
             return response.read().decode("utf-8", errors="replace")

@@ -103,7 +103,7 @@ async function checkRegionQuality(id) {
   checkingRegionIds.add(id);
   renderRegionsList();
   if (previewBox) {
-    previewBox.innerHTML = `<div class="message-box">Checking region nodes, up to 20 at a time...</div>`;
+    previewBox.innerHTML = `<div class="message-box">正在检查地区节点，每批最多 20 个……</div>`;
   }
   try {
     const response = await fetch("./api/v1/quality-checks/region", {

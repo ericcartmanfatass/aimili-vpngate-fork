@@ -147,7 +147,7 @@ class OpenVPNRuntimeFacade:
                     except ProcessLookupError:
                         pass
                     except PermissionError:
-                        self.print_line(f"[Cleanup] No permission to terminate OpenVPN PID {pid}")
+                        self.print_line(f"[清理] 无权终止 OpenVPN 进程 PID {pid}")
             if killed_pids:
                 self.sleep(0.5)
                 for pid in killed_pids:
@@ -159,9 +159,9 @@ class OpenVPNRuntimeFacade:
                             pass
                         except (OSError, PermissionError):
                             pass
-                self.print_line(f"[Cleanup] Terminated AimiliVPN OpenVPN processes: {killed_pids}")
+                self.print_line(f"[清理] 已终止 AimiliVPN 管理的 OpenVPN 进程: {killed_pids}")
         except Exception as exc:
-            self.print_line(f"[Cleanup Error] Failed to kill existing OpenVPN processes: {exc}")
+            self.print_line(f"[清理错误] 无法终止现有 OpenVPN 进程；技术详情: {exc}")
 
     def _read_cmdline(self, proc_dir: Path) -> str:
         try:

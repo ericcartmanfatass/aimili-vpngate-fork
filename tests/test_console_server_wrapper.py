@@ -31,7 +31,7 @@ class ConsoleServerWrapperTests(unittest.TestCase):
 
         text = output.getvalue()
         self.assertNotIn("do-not-log-this", text)
-        self.assertIn("secret path hidden", text)
+        self.assertIn("安全路径已隐藏", text)
         self.assertIn("本机明文 HTTP", text)
         server.serve_forever.assert_called_once_with()
 

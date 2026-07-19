@@ -13,6 +13,25 @@ from aimilivpn.system import console_backend, console_config, console_instances
 
 
 class ConsoleConfigTests(unittest.TestCase):
+    def test_generated_console_password_is_written_to_private_file_not_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            auth_file = root / "console_auth.json"
+            initial_file = root / "console_initial_password"
+            with (
+                patch.object(console_config, "AUTH_FILE", auth_file),
+                patch.object(console_config, "INITIAL_PASSWORD_FILE", initial_file),
+                patch.object(console_config, "generate_password", return_value="ConsoleSecret123"),
+                patch("builtins.print") as print_mock,
+            ):
+                auth = console_config.load_console_auth()
+
+            printed = " ".join(str(arg) for call in print_mock.call_args_list for arg in call.args)
+            self.assertNotIn("ConsoleSecret123", printed)
+            self.assertIn(str(initial_file), printed)
+            self.assertIn("ConsoleSecret123", initial_file.read_text(encoding="utf-8"))
+            self.assertTrue(verify_password("ConsoleSecret123", auth["password_hash"]))
+
     def test_load_console_auth_migrates_plaintext_password(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             auth_file = Path(tmp) / "console_auth.json"
@@ -55,6 +74,10 @@ class ConsoleConfigTests(unittest.TestCase):
             self.assertEqual(reloaded.CONFIG_DIR, Path("/etc/aimilivpn"))
             self.assertEqual(reloaded.INSTALL_DIR, Path("/opt/aimilivpn"))
             self.assertEqual(reloaded.AUTH_FILE, Path("/etc/aimilivpn/console_auth.json"))
+            self.assertEqual(
+                reloaded.INITIAL_PASSWORD_FILE,
+                Path("/etc/aimilivpn/console_initial_password"),
+            )
             self.assertEqual(reloaded.INSTANCES_FILE, Path("/etc/aimilivpn/instances.json"))
             self.assertEqual(reloaded.CONSOLE_HOST, "127.0.0.1")
             self.assertEqual(reloaded.CONSOLE_PORT, 8788)
@@ -65,6 +88,38 @@ class ConsoleConfigTests(unittest.TestCase):
 
 
 class ConsoleInstanceTests(unittest.TestCase):
+    def test_available_country_catalog_reads_global_v102_snapshot_without_existing_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            global_dir = root / "data" / "global"
+            global_dir.mkdir(parents=True)
+            (global_dir / "nodes.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "nodes": [
+                            {"id": "de_1", "country_short": "DE", "country": "Germany"},
+                            {"id": "de_2", "country_short": "DE", "country": "Germany"},
+                            {"id": "fr_1", "country_short": "FR", "country": "France"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            instances_file = root / "instances.json"
+            instances_file.write_text(json.dumps({"instances": []}), encoding="utf-8")
+
+            with (
+                patch.object(console_instances, "CONFIG_DIR", root / "config"),
+                patch.object(console_instances, "INSTALL_DIR", root),
+                patch.object(console_instances, "INSTANCES_FILE", instances_file),
+            ):
+                catalog = console_instances.load_available_country_catalog()
+
+        by_country = {item["country"]: item for item in catalog}
+        self.assertEqual(by_country["DE"]["node_count"], 2)
+        self.assertEqual(by_country["FR"]["node_count"], 1)
+
     def test_load_instances_reads_instances_file_and_env_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -224,9 +279,9 @@ class ConsoleInstanceTests(unittest.TestCase):
             managed_env = root / "jp.env"
             managed_env.write_text("UI_PORT=8787", encoding="utf-8")
             with patch.object(console_instances, "CONFIG_DIR", root):
-                with self.assertRaisesRegex(ValueError, "managed configuration"):
+                with self.assertRaisesRegex(ValueError, "受管目录"):
                     console_instances.normalize_instance({"id": "jp", "env_file": str(root / "other.env")})
-                with self.assertRaisesRegex(ValueError, "installer managed"):
+                with self.assertRaisesRegex(ValueError, "安装器管理范围"):
                     console_instances.normalize_instance(
                         {"id": "jp", "env_file": str(managed_env), "service": "ssh.service"}
                     )
@@ -242,7 +297,7 @@ class ConsoleBackendTests(unittest.TestCase):
             result = console_backend.service_action("aimilivpn@jp.service", "reload")
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["error"], "unsupported service action")
+        self.assertEqual(result["error"], "不支持的服务操作")
 
     def test_service_action_rejects_unmanaged_or_mismatched_service(self) -> None:
         with patch.object(console_backend, "systemctl", side_effect=AssertionError("should not run")):
@@ -251,8 +306,8 @@ class ConsoleBackendTests(unittest.TestCase):
                 "aimilivpn@us.service", "restart", instance_id="jp"
             )
 
-        self.assertEqual(unmanaged["error"], "service operation rejected")
-        self.assertEqual(mismatched["error"], "service operation rejected")
+        self.assertEqual(unmanaged["error"], "已拒绝对非受管服务执行操作。")
+        self.assertEqual(mismatched["error"], "已拒绝对非受管服务执行操作。")
 
     def test_service_action_does_not_echo_exception_details(self) -> None:
         with patch.object(console_backend, "systemctl", side_effect=RuntimeError("sensitive detail")):
@@ -267,7 +322,7 @@ class ConsoleBackendTests(unittest.TestCase):
         with patch("http.client.HTTPConnection.request", side_effect=OSError("sensitive detail")):
             result = console_backend.backend_request({"id": "jp", "ui_port": 8787}, "/api/status")
 
-        self.assertEqual(result, {"ok": False, "status": 502, "error": "backend unavailable"})
+        self.assertEqual(result, {"ok": False, "status": 502, "error": "实例后端暂不可用"})
 
 
 if __name__ == "__main__":

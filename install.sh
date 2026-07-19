@@ -13,7 +13,7 @@ ASSUME_YES=0
 
 show_usage() {
     cat <<'EOF'
-AimiliVPN one-script installer and lifecycle entry
+AimiliVPN 一键安装与生命周期管理入口
 
 用法:
   bash install.sh [--install|--update] [--ref vX.Y.Z|FULL_COMMIT]

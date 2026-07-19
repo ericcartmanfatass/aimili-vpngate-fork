@@ -6,12 +6,20 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
-from aimilivpn.core.global_backup import BackupManager, build_backup_payload, preview_backup, validate_backup_payload
+from aimilivpn.core.global_backup import (
+    BackupManager,
+    BackupRestoreError,
+    build_backup_payload,
+    document_checksum as backup_checksum,
+    preview_backup,
+    validate_backup_payload,
+)
 from aimilivpn.core.global_config import (
     APP_VERSION,
     GlobalConfigError,
@@ -23,9 +31,21 @@ from aimilivpn.core.global_config import (
 from aimilivpn.core.global_nodes import build_country_index, write_global_nodes
 from aimilivpn.core.global_quality import QualityBatchProcessor
 from aimilivpn.core.global_storage import GlobalRepository
+from aimilivpn.core.storage import SqliteStore, migration_summary_status
 from aimilivpn.providers.scamalytics import ScamalyticsProvider
-from aimilivpn.system.console_instances import load_instances, read_logs
+from aimilivpn.system.console_instances import load_instances, parse_env_file, read_logs
 from aimilivpn.system.global_scheduler import GlobalScheduler
+
+
+INSTANCE_PREFERENCE_KEYS = (
+    "routing_mode",
+    "force_country",
+    "routing_ip_type",
+    "connection_enabled",
+    "fixed_node_id",
+    "favorite_node_ids",
+    "fav_fail_fallback",
+)
 
 
 def _atomic_write(path: Path, payload: Any) -> None:
@@ -58,7 +78,7 @@ class GlobalConsoleRuntime:
         snapshot_dir = runtime.install_dir / "data" / "global"
         storage_backend = os.environ.get("AIMILIVPN_GLOBAL_STORAGE_BACKEND", "sqlite").strip().lower() or "sqlite"
         repository = GlobalRepository(snapshot_dir, backend=storage_backend)
-        repository.migrate_json()
+        runtime.migration_result = repository.migrate_json()
         runtime.scheduler = GlobalScheduler(
             runtime.config_dir,
             runtime.install_dir / "data",
@@ -75,6 +95,10 @@ class GlobalConsoleRuntime:
     @property
     def regions_path(self) -> Path:
         return self.install_dir / "data" / "global" / "regions.json"
+
+    @property
+    def restore_status_path(self) -> Path:
+        return self.config_dir / "last_restore_status.json"
 
     def settings(self) -> dict[str, Any]:
         return public_global_settings(self.config_dir)
@@ -106,13 +130,78 @@ class GlobalConsoleRuntime:
             "instances": instance_logs,
             "security": {
                 "storage_backend": self.scheduler.repository.backend,
+                "storage_health": self.scheduler.repository.health_status(),
+                "last_migration": getattr(self, "migration_result", {}),
                 "secret_storage_separate": True,
                 "api_key_configured": bool(settings.get("scamalytics_api_key_configured")),
                 "backup_directory": str(self.config_dir / "backups"),
+                "latest_backup": self._latest_backup_status(),
+                "last_restore": getattr(
+                    self,
+                    "last_restore",
+                    self._read_json(self.restore_status_path, {}),
+                ),
+                "instance_storage": self._instance_storage_status(),
                 "log_retention_days": settings.get("json_log_retention_days"),
+                "text_log_max_bytes": settings.get("text_log_max_bytes"),
                 "text_log_backup_count": settings.get("text_log_backup_count"),
             },
         }
+
+    def _latest_backup_status(self) -> dict[str, Any]:
+        backup_dir = self.config_dir / "backups"
+        candidates: list[tuple[float, Path]] = []
+        for path in backup_dir.glob("aimilivpn-v*.json"):
+            try:
+                candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        if not candidates:
+            return {}
+        updated_at, path = candidates[0]
+        status: dict[str, Any] = {
+            "path": str(path),
+            "updated_at": updated_at,
+            "validated": False,
+            "checksum": "",
+        }
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            validated = validate_backup_payload(payload)
+            status["validated"] = True
+            status["checksum"] = backup_checksum(validated)
+            status["backup_type"] = validated.get("backup_type")
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        return status
+
+    def _instance_storage_status(self) -> list[dict[str, Any]]:
+        statuses: list[dict[str, Any]] = []
+        for instance in load_instances():
+            env = parse_env_file(Path(str(instance.get("env_file") or "")))
+            backend = str(env.get("STORAGE_BACKEND") or "sqlite").strip().lower()
+            data_dir = Path(str(instance.get("data_dir") or ""))
+            db_path = Path(env.get("SQLITE_DB_PATH") or data_dir / "aimilivpn.db")
+            if not db_path.is_absolute():
+                db_path = data_dir / db_path
+            item: dict[str, Any] = {
+                "id": str(instance.get("id") or ""),
+                "backend": backend if backend in {"json", "sqlite"} else "sqlite",
+                "ok": True,
+                "path": str(db_path) if backend != "json" else str(data_dir),
+                "migration": None,
+            }
+            if item["backend"] == "sqlite" and db_path.exists():
+                store = SqliteStore(db_path)
+                item.update(store.health_status())
+                summary = store.latest_migration_summary()
+                item["migration"] = migration_summary_status(summary)
+            elif item["backend"] == "sqlite":
+                item["ok"] = False
+                item["quick_check"] = "missing"
+            statuses.append(item)
+        return statuses
 
     def nodes(self) -> dict[str, Any]:
         quality_cache = self.scheduler.repository.read_quality()
@@ -186,7 +275,16 @@ class GlobalConsoleRuntime:
     def backup_payload(self, backup_type: str = "config") -> dict[str, Any]:
         instances = []
         for instance in load_instances():
-            instances.append({"id": instance["id"], "country": instance["country"]})
+            data_dir = str(instance.get("data_dir") or "").strip()
+            ui_config = self._read_json(Path(data_dir) / "ui_auth.json", {}) if data_dir else {}
+            preferences = {
+                key: ui_config[key]
+                for key in INSTANCE_PREFERENCE_KEYS
+                if isinstance(ui_config, dict) and key in ui_config
+            }
+            instances.append(
+                {"id": instance["id"], "country": instance["country"], "preferences": preferences}
+            )
         regions = self._read_regions()
         nodes = []
         for node in self.scheduler.read_nodes():
@@ -217,24 +315,73 @@ class GlobalConsoleRuntime:
         current = self.backup_payload("full" if candidate["backup_type"] == "full" else "config")
         return {"validation": "ok", **preview_backup(current, candidate)}
 
-    def restore(self, payload: Mapping[str, Any], *, confirmed: bool) -> dict[str, Any]:
+    def restore(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        confirmed: bool,
+        confirm_deletions: bool = False,
+        sync_instances: Callable[[list[dict[str, Any]]], Any] | None = None,
+    ) -> dict[str, Any]:
         if not confirmed:
             raise GlobalConfigError("恢复操作需要二次确认")
         candidate = validate_backup_payload(payload)
         current = self.backup_payload("full" if candidate["backup_type"] == "full" else "config")
+        restore_preview = preview_backup(current, candidate)
+        if restore_preview.get("requires_deletion_confirmation") and not confirm_deletions:
+            raise GlobalConfigError("恢复包含删除项，需要单独确认")
 
-        def apply(document: dict[str, Any]) -> None:
+        secrets_before = load_global_secrets(self.config_dir)
+
+        def apply(document: dict[str, Any], *, scamalytics_api_key: str) -> None:
             settings = document.get("global_settings")
             if not isinstance(settings, dict):
                 raise GlobalConfigError("缺少全局配置")
-            save_global_settings(self.config_dir, settings)
-            _atomic_write(self.preferences_path, document.get("instances", []))
+            save_global_settings(
+                self.config_dir,
+                settings,
+                scamalytics_api_key=scamalytics_api_key,
+            )
+            restored_instances = [
+                dict(item) for item in document.get("instances", []) if isinstance(item, dict)
+            ]
+            if sync_instances is not None:
+                sync_instances(restored_instances)
+            self._restore_instance_preferences(restored_instances)
+            _atomic_write(self.preferences_path, restored_instances)
             _atomic_write(self.regions_path, document.get("regions", []))
             if document.get("backup_type") == "full":
                 self._restore_business_data(document)
 
         manager = BackupManager(self.config_dir / "backups")
-        result = manager.restore(candidate, current=current, apply=apply)
+        try:
+            result = manager.restore(
+                candidate,
+                current=current,
+                apply=lambda document: apply(document, scamalytics_api_key=""),
+                rollback=lambda document: apply(
+                    document,
+                    scamalytics_api_key=str(secrets_before.get("scamalytics_api_key") or ""),
+                ),
+            )
+        except BackupRestoreError as exc:
+            self.last_restore = {
+                "at": time.time(),
+                "checksum": backup_checksum(candidate),
+                "ok": False,
+                "error_code": exc.error_code,
+                "rollback_succeeded": exc.rollback_succeeded,
+            }
+            _atomic_write(self.restore_status_path, self.last_restore)
+            raise
+        result["preview"] = restore_preview
+        self.last_restore = {
+            "at": time.time(),
+            "backup_before_restore": result.get("backup_before_restore"),
+            "checksum": result.get("checksum"),
+            "ok": True,
+        }
+        _atomic_write(self.restore_status_path, self.last_restore)
         public = self.settings()
         result["sensitive_config_required"] = bool(
             public.get("scamalytics_enabled") and not public.get("scamalytics_api_key_configured")
@@ -246,6 +393,7 @@ class GlobalConsoleRuntime:
         now = self.scheduler.clock()
         raw_nodes = document.get("nodes", [])
         nodes = [dict(item) for item in raw_nodes if isinstance(item, dict) and str(item.get("id") or "").strip()]
+        cleaned: list[dict[str, Any]] = []
         if nodes:
             cleaned = write_global_nodes(
                 self.scheduler.nodes_path,
@@ -253,9 +401,7 @@ class GlobalConsoleRuntime:
                 config_dir=self.scheduler.configs_dir,
                 updated_at=now,
             )
-            self.scheduler.repository.replace_nodes(cleaned, updated_at=now)
         else:
-            self.scheduler.repository.clear_nodes(updated_at=now)
             _atomic_write(
                 self.scheduler.nodes_path,
                 {
@@ -268,24 +414,8 @@ class GlobalConsoleRuntime:
             )
         _atomic_write(self.scheduler.country_index_path, build_country_index(nodes))
 
-        quality_results = document.get("quality_results", [])
-        self.scheduler.repository.replace_quality(
-            [dict(item) for item in quality_results if isinstance(item, dict)]
-            if isinstance(quality_results, list)
-            else []
-        )
-        self.scheduler.repository.clear_quality_queue()
-        _atomic_write(self.scheduler.snapshot_dir / "blacklist.json", document.get("blacklist", {}))
         quality_metrics = document.get("quality_metrics", {})
-        self.scheduler.repository.write_quality_metrics(
-            quality_metrics if isinstance(quality_metrics, dict) else {}
-        )
         history = document.get("job_history", [])
-        self.scheduler.repository.replace_history(
-            [dict(item) for item in history if isinstance(item, dict)]
-            if isinstance(history, list)
-            else []
-        )
         restored_state = {
             "status": "restored",
             "last_finished_at": now,
@@ -297,12 +427,48 @@ class GlobalConsoleRuntime:
             "next_scheduled_at": self.scheduler.next_scheduled_at(now),
             "last_result_node_count": len(nodes),
         }
-        self.scheduler._write_state(restored_state)
+        quality_results = document.get("quality_results", [])
+        self.scheduler.repository.restore_business_bundle(
+            nodes=cleaned if nodes else [],
+            quality_results=(
+                [dict(item) for item in quality_results if isinstance(item, dict)]
+                if isinstance(quality_results, list)
+                else []
+            ),
+            quality_metrics=quality_metrics if isinstance(quality_metrics, dict) else {},
+            history=(
+                [dict(item) for item in history if isinstance(item, dict)]
+                if isinstance(history, list)
+                else []
+            ),
+            task_state=restored_state,
+            updated_at=now,
+        )
+        _atomic_write(self.scheduler.snapshot_dir / "blacklist.json", document.get("blacklist", {}))
         if self.scheduler.repository.backend == "sqlite":
+            _atomic_write(self.scheduler.state_path, restored_state)
             _atomic_write(self.scheduler.history_path, self.scheduler.repository.read_history(limit=100))
             _atomic_write(self.scheduler.repository.quality_path, self.scheduler.repository.read_quality())
             _atomic_write(self.scheduler.repository.quality_queue_path, {})
             _atomic_write(self.scheduler.repository.quality_metrics_path, self.scheduler.repository.read_quality_metrics())
+
+    def _restore_instance_preferences(self, desired_instances: list[dict[str, Any]]) -> None:
+        current_by_id = {str(item.get("id") or ""): item for item in load_instances()}
+        for desired in desired_instances:
+            instance_id = str(desired.get("id") or "")
+            current = current_by_id.get(instance_id)
+            if current is None:
+                raise GlobalConfigError(f"恢复后未找到实例: {instance_id}")
+            preferences = desired.get("preferences", {})
+            if not isinstance(preferences, dict):
+                raise GlobalConfigError(f"实例偏好格式无效: {instance_id}")
+            auth_path = Path(current["data_dir"]) / "ui_auth.json"
+            ui_config = self._read_json(auth_path, {})
+            ui_config = dict(ui_config) if isinstance(ui_config, dict) else {}
+            for key in INSTANCE_PREFERENCE_KEYS:
+                if key in preferences:
+                    ui_config[key] = preferences[key]
+            _atomic_write(auth_path, ui_config)
 
     def start(self) -> None:
         self.scheduler.start()

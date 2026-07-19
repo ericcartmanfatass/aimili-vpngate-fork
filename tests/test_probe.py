@@ -199,7 +199,7 @@ class TestProbeHelpers(unittest.TestCase):
 
         self.assertEqual(results["ok"], {"id": "ok", "probe_status": "available"})
         self.assertEqual(results["bad"]["probe_status"], "unavailable")
-        self.assertEqual(results["bad"]["probe_message"], "Test exception: boom")
+        self.assertEqual(results["bad"]["probe_message"], "节点测试异常；技术详情: boom")
 
     def test_execute_openvpn_probe_can_raise_write_error(self) -> None:
         def write_config(path: Path, config_text: str) -> None:

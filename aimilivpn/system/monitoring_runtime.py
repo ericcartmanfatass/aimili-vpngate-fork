@@ -144,12 +144,9 @@ class MonitoringRuntime:
             self._mark_active_node_proxy_failed(active_node_id, error_msg)
             self.auto_switch_node()
         elif should_restart_fixed_node_after_proxy_failure(active_node_id, routing_mode):
-            self.print_line(f"[代理] 固定 IP 模式代理检测失败，正在重启节点: {active_node_id}")
+            self.print_line(f"[代理] 固定 IP 模式代理检测失败，正在进入固定节点退避重试: {active_node_id}")
             self.set_is_connecting(False)
-            try:
-                self.connect_node(active_node_id)
-            except Exception as exc:
-                self.print_line(f"[代理] 重启固定节点失败: {exc}")
+            self.auto_switch_node()
 
     def _mark_active_node_proxy_failed(self, active_node_id: str, error_msg: str) -> None:
         failure_message = f"代理连通性检测失败: {error_msg}"

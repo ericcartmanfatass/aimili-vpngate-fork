@@ -13,7 +13,16 @@ from aimilivpn.core.auth import generate_password, hash_password, utc_now_iso
 from aimilivpn.core.config import AppConfig, load_config
 from aimilivpn.core.models import QualityResult
 from aimilivpn.core.regions import match_node
-from aimilivpn.core.storage import JsonStore, NodeRepository, QualityRepository, RegionRepository
+from aimilivpn.core.storage import (
+    NodeRepository,
+    QualityRepository,
+    RegionRepository,
+    SqliteStore,
+    build_store,
+    migrate_json_to_sqlite,
+    migration_summary_status,
+)
+from aimilivpn.core.global_storage import GlobalRepository
 from aimilivpn.system.repository_facade import RepositoryFacade
 
 
@@ -28,15 +37,37 @@ class CliContext:
     def __init__(self, root_dir: Path | None = None, runner: Runner | None = None) -> None:
         self.root_dir = root_dir or Path.cwd()
         self.config = load_config(self.root_dir)
+        storage_backend = (os.environ.get("STORAGE_BACKEND") or "sqlite").strip().lower()
+        if storage_backend not in {"json", "sqlite"}:
+            storage_backend = "sqlite"
+        sqlite_path = Path(os.environ.get("SQLITE_DB_PATH") or self.config.data_dir / "aimilivpn.db")
+        if not sqlite_path.is_absolute():
+            sqlite_path = self.root_dir / sqlite_path
+        sqlite_path = sqlite_path.resolve()
+        domain_store = build_store(storage_backend, sqlite_db_path=sqlite_path)
+        self.storage_backend = storage_backend
+        self.sqlite_path = sqlite_path
+        self.domain_store = domain_store
+        self.migration_summary = None
+        if isinstance(domain_store, SqliteStore):
+            self.migration_summary = migrate_json_to_sqlite(
+                {
+                    self.config.nodes_file: "nodes",
+                    self.config.regions_file: "regions",
+                    self.config.quality_results_file: "quality_results",
+                },
+                domain_store,
+            )
         self.repositories = RepositoryFacade(
-            node_repository=NodeRepository(self.config.nodes_file),
-            region_repository=RegionRepository(self.config.data_dir / "regions.json"),
-            quality_repository=QualityRepository(self.config.data_dir / "quality_results.json"),
+            node_repository=NodeRepository(self.config.nodes_file, store=domain_store),
+            region_repository=RegionRepository(self.config.data_dir / "regions.json", store=domain_store),
+            quality_repository=QualityRepository(self.config.data_dir / "quality_results.json", store=domain_store),
             country_translations={},
         )
-        self.store = JsonStore()
         self.system_config_dir = Path(os.environ.get("AIMILIVPN_CONFIG_DIR", "/etc/aimilivpn"))
         self.install_dir = Path(os.environ.get("AIMILIVPN_INSTALL_DIR", "/opt/aimilivpn"))
+        global_backend = (os.environ.get("AIMILIVPN_GLOBAL_STORAGE_BACKEND") or "sqlite").strip().lower()
+        self.global_repository = GlobalRepository(self.install_dir / "data" / "global", backend=global_backend)
         self.sysctl_file = Path(os.environ.get("AIMILIVPN_SYSCTL_FILE", "/etc/sysctl.d/99-aimilivpn.conf"))
         self.sysctl_backup = Path(
             os.environ.get(
@@ -51,6 +82,8 @@ def cmd_status(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     instances = instance_status_rows(ctx)
     primary = instances[0] if instances else legacy_status_row(ctx)
     services = service_status_rows(ctx)
+    storage = storage_status(ctx)
+    global_task = global_task_status(ctx)
     payload = {
         "data_dir": primary["data_dir"],
         "ui": primary["ui"],
@@ -59,6 +92,8 @@ def cmd_status(args: Any, ctx: CliContext, stdout: TextIO) -> int:
         "connecting": primary["connecting"],
         "proxy_ok": primary["proxy_ok"],
         "scamalytics_configured": ctx.config.scamalytics_configured,
+        "storage": storage,
+        "global_task": global_task,
         "instances": instances,
         "services": services,
     }
@@ -70,6 +105,13 @@ def cmd_status(args: Any, ctx: CliContext, stdout: TextIO) -> int:
         stdout.write(f"本地代理: {payload['local_proxy']}\n")
         stdout.write(f"当前节点: {payload['active_node']}\n")
         stdout.write(f"Scamalytics 已配置: {payload['scamalytics_configured']}\n")
+        stdout.write(f"存储后端: {storage['backend']}\n")
+        stdout.write(f"存储健康: {'正常' if storage.get('ok') else '异常'}\n")
+        if storage.get("migration"):
+            stdout.write(f"最近迁移: {storage['migration']['total_count']} 条，备份 {storage['migration']['backup_dir']}\n")
+        if global_task:
+            stdout.write(f"VPNGate 上次更新: {global_task.get('last_success_at') or '未记录'}\n")
+            stdout.write(f"VPNGate 下次更新: {global_task.get('next_scheduled_at') or global_task.get('next_retry_at') or '未计划'}\n")
         if instances:
             stdout.write("\n实例:\n")
             _write_table(
@@ -83,8 +125,24 @@ def cmd_status(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     return 0
 
 
+def storage_status(ctx: CliContext) -> dict[str, Any]:
+    if not isinstance(ctx.domain_store, SqliteStore):
+        return {"backend": ctx.storage_backend, "ok": True, "path": "", "migration": None}
+    health = ctx.domain_store.health_status()
+    summary = ctx.migration_summary or ctx.domain_store.latest_migration_summary()
+    return {**health, "migration": migration_summary_status(summary)}
+
+
+def global_task_status(ctx: CliContext) -> dict[str, Any]:
+    root = ctx.install_dir / "data" / "global"
+    if not root.exists():
+        return {}
+    return ctx.global_repository.read_task_state()
+
+
 def cmd_service_action(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     action = args.command
+    action_label = {"start": "启动", "stop": "停止", "restart": "重启"}.get(action, action)
     services = discover_services(ctx)
     if not services:
         raise CliError("未找到 AimiliVPN systemd 服务")
@@ -94,8 +152,8 @@ def cmd_service_action(args: Any, ctx: CliContext, stdout: TextIO) -> int:
         if result.returncode != 0:
             failed.append(service)
     if failed:
-        raise CliError(f"{action} 操作失败: {', '.join(failed)}")
-    stdout.write(f"已请求对 {len(services)} 个服务执行 {action}: {', '.join(services)}\n")
+        raise CliError(f"{action_label} 服务失败: {', '.join(failed)}")
+    stdout.write(f"已请求对 {len(services)} 个服务执行{action_label}: {', '.join(services)}\n")
     return 0
 
 
@@ -157,6 +215,7 @@ def cmd_password_reset(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     updated["updated_at"] = utc_now_iso()
     try:
         write_private_json(auth_path, updated)
+        (ctx.system_config_dir / "console_initial_password").unlink(missing_ok=True)
     except OSError as exc:
         raise CliError("无法更新 Console 密码，请以 root 身份运行此命令") from exc
 
@@ -215,7 +274,7 @@ def cmd_uninstall(args: Any, ctx: CliContext, stdout: TextIO) -> int:
     if args.delete_data:
         for data_path in data_paths_for_uninstall(ctx, instances):
             if data_path.resolve() == ctx.install_dir.resolve():
-                raise CliError(f"refusing to remove install directory as data: {data_path}")
+                raise CliError(f"拒绝将安装目录作为数据目录删除: {data_path}")
             if safe_remove_path(data_path, recursive=True, allowed_roots=[ctx.install_dir]):
                 removed.append(str(data_path))
     if args.delete_source:
@@ -329,7 +388,7 @@ def discover_services(ctx: CliContext) -> list[str]:
 
 
 def load_instances(ctx: CliContext) -> list[dict[str, Any]]:
-    raw = ctx.store.read(ctx.system_config_dir / "instances.json", {})
+    raw = read_json_file(ctx.system_config_dir / "instances.json", {})
     if isinstance(raw, dict) and isinstance(raw.get("instances"), list):
         return [dict(item) for item in raw["instances"] if isinstance(item, dict)]
     return []
@@ -340,7 +399,7 @@ def instance_status_rows(ctx: CliContext) -> list[dict[str, Any]]:
     for item in load_instances(ctx):
         data_dir_text = str(item.get("data_dir") or "").strip()
         data_dir = Path(data_dir_text) if data_dir_text else None
-        state = ctx.store.read(data_dir / "state.json", {}) if data_dir is not None else {}
+        state = read_json_file(data_dir / "state.json", {}) if data_dir is not None else {}
         if not isinstance(state, dict):
             state = {}
         ui_host = str(item.get("ui_host") or "127.0.0.1")
@@ -359,7 +418,7 @@ def instance_status_rows(ctx: CliContext) -> list[dict[str, Any]]:
 
 
 def legacy_status_row(ctx: CliContext) -> dict[str, Any]:
-    state = ctx.store.read(ctx.config.state_file, {})
+    state = read_json_file(ctx.config.state_file, {})
     if not isinstance(state, dict):
         state = {}
     return {
@@ -507,15 +566,15 @@ def safe_remove_path(path: Path, recursive: bool = False, allowed_roots: list[Pa
     except OSError:
         return False
     if target == Path(target.anchor):
-        raise CliError(f"refusing to remove filesystem root: {target}")
+        raise CliError(f"拒绝删除文件系统根目录: {target}")
     allowed_roots = [root.resolve() for root in allowed_roots or []]
     if allowed_roots and not any(target == root or root in target.parents for root in allowed_roots):
-        raise CliError(f"refusing to remove path outside allowed roots: {target}")
+        raise CliError(f"拒绝删除受管目录之外的路径: {target}")
     if not target.exists() and not target.is_symlink():
         return False
     if target.is_dir() and not target.is_symlink():
         if not recursive:
-            raise CliError(f"refusing to remove directory without recursive flag: {target}")
+            raise CliError(f"拒绝在未明确递归删除时移除目录: {target}")
         shutil.rmtree(target)
     else:
         target.unlink()

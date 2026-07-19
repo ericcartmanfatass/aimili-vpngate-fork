@@ -193,6 +193,100 @@ class ConnectionOrchestratorTests(unittest.TestCase):
         self.assertEqual(state["states"][-1]["connection_retry_level"], 1)
         self.assertEqual(state["states"][-1]["next_connection_retry_at"], 183.0)
 
+    def test_auto_switch_tries_at_most_three_candidates_per_round(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            nodes = [
+                {"id": f"jp_{index}", "probe_status": "available", "latency_ms": str(index * 10)}
+                for index in range(1, 5)
+            ]
+            orchestrator, state = self.build_orchestrator(nodes=nodes, tmp_dir=Path(tmp))
+            attempted: list[str] = []
+            blacklisted: list[str] = []
+
+            def fail(node_id: str) -> str:
+                attempted.append(node_id)
+                raise RuntimeError("offline")
+
+            orchestrator.connect_node = fail  # type: ignore[method-assign]
+            orchestrator.mark_blacklisted = lambda node, message: blacklisted.append(str(node["id"]))
+            orchestrator.auto_switch_node()
+
+        self.assertEqual(attempted, ["jp_1", "jp_2", "jp_3"])
+        self.assertEqual(blacklisted, attempted)
+        self.assertEqual(len(state["threads"]), 1)
+
+    def test_no_candidate_waits_for_global_snapshot_without_instance_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator, state = self.build_orchestrator(nodes=[], tmp_dir=Path(tmp))
+
+            orchestrator.auto_switch_node()
+            orchestrator.auto_switch_node()
+
+        self.assertEqual(state["threads"], [])
+        self.assertEqual(len(state["logs"]), 1)
+        self.assertTrue(state["states"][-1]["connection_waiting_for_global_nodes"])
+        self.assertEqual(state["states"][-1]["next_connection_retry_at"], 0)
+        self.assertEqual(state["phases"][-1][0], "idle")
+
+    def test_fixed_ip_failure_retries_only_the_fixed_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            nodes = [
+                {"id": "fixed", "probe_status": "available", "latency_ms": "50"},
+                {"id": "other", "probe_status": "available", "latency_ms": "5"},
+            ]
+            orchestrator, state = self.build_orchestrator(
+                nodes=nodes,
+                tmp_dir=Path(tmp),
+                ui_config={"routing_mode": "fixed_ip", "fixed_node_id": "fixed"},
+            )
+            attempted: list[str] = []
+
+            def fail(node_id: str) -> str:
+                attempted.append(node_id)
+                raise RuntimeError("offline")
+
+            orchestrator.connect_node = fail  # type: ignore[method-assign]
+            orchestrator.auto_switch_node()
+
+        self.assertEqual(attempted, ["fixed"])
+        self.assertEqual(len(state["threads"]), 1)
+
+    def test_process_restart_resumes_persisted_retry_without_immediate_connect(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            nodes = [{"id": "jp_1", "probe_status": "available", "latency_ms": "10"}]
+            orchestrator, state = self.build_orchestrator(nodes=nodes, tmp_dir=Path(tmp))
+            connected: list[str] = []
+            orchestrator.connect_node = lambda node_id: connected.append(node_id) or "ok"  # type: ignore[method-assign]
+            orchestrator.get_state = lambda: {
+                "connection_retry_level": 2,
+                "next_connection_retry_at": 300.0,
+            }
+
+            orchestrator.auto_switch_node()
+
+        self.assertEqual(connected, [])
+        self.assertEqual(len(state["threads"]), 1)
+        self.assertIn("177 秒后重试", state["phases"][-1][1])
+
+    def test_pending_retry_is_cancelled_when_connection_is_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = {"connection_enabled": True}
+            orchestrator, state = self.build_orchestrator(
+                nodes=[{"id": "jp_1", "probe_status": "available"}],
+                tmp_dir=Path(tmp),
+                ui_config=config,
+            )
+            orchestrator.load_ui_config = lambda: dict(config)
+            orchestrator.connect_node = lambda node_id: (_ for _ in ()).throw(RuntimeError("offline"))  # type: ignore[method-assign]
+            orchestrator.auto_switch_node()
+            retry = state["threads"][0]
+            config["connection_enabled"] = False
+
+            retry()
+
+        self.assertFalse(orchestrator.retry_scheduled())
+        self.assertEqual(state["states"][-1]["next_connection_retry_at"], 0)
+
     def test_connect_node_success_updates_runtime_state_and_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "jp_1.ovpn"

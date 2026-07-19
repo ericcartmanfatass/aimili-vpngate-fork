@@ -30,7 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     for action in ("start", "stop", "restart"):
-        service_parser = subparsers.add_parser(action, help=f"{action.capitalize()} AimiliVPN systemd 服务")
+        label = {"start": "启动", "stop": "停止", "restart": "重启"}[action]
+        service_parser = subparsers.add_parser(action, help=f"{label} AimiliVPN systemd 服务")
         service_parser.set_defaults(func=cmd_service_action)
 
     status_parser = subparsers.add_parser("status", help="查看本地服务状态")

@@ -137,7 +137,7 @@ class WebRuntimeWiring:
         return read_json_log_entries(
             self.data_dir() / "logs",
             lock=self.lock,
-            on_error=lambda exc: self.print_line(f"[API Logs] Error reading log file: {exc}"),
+            on_error=lambda exc: self.print_line(f"[API 日志] 读取日志文件失败；技术详情: {exc}"),
         )
 
     def route_context_factory(self) -> WebRouteContextFactory:

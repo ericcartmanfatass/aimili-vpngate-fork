@@ -128,7 +128,7 @@ class ManagerConfigTests(unittest.TestCase):
             with redirect_stdout(StringIO()):
                 config = load_manager_runtime_config(root)
 
-        self.assertEqual(config.storage_backend, "json")
+        self.assertEqual(config.storage_backend, "sqlite")
 
     def test_load_manager_runtime_config_defaults_blank_sqlite_path_to_data_dir(self) -> None:
         root = Path("sample-root").resolve()
