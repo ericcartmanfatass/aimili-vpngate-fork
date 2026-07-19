@@ -148,7 +148,7 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
                 HTTPStatus.BAD_REQUEST,
             )
         except OSError as exc:
-            print(f"[web audit] response transport failed: {type(exc).__name__}", flush=True)
+            print(f"[Web 审计] 响应传输失败；异常类型: {type(exc).__name__}", flush=True)
         except Exception as exc:
             send_api_error(self, "internal_error", exc=exc, operation="request dispatch")
 
@@ -217,7 +217,7 @@ class WebRequestHandler(HttpResponseMixin, BaseHTTPRequestHandler):
 
     def _audit_write(self, method: str, effective_path: str) -> None:
         client = self.client_address[0] if getattr(self, "client_address", None) else "unknown"
-        print(f"[web audit] mutation method={method} path={effective_path} client={client}", flush=True)
+        print(f"[Web 审计] 收到变更请求 method={method} path={effective_path} client={client}", flush=True)
 
 
 def serve_web_forever(host: str, port: int, runtime: WebServerRuntime) -> None:

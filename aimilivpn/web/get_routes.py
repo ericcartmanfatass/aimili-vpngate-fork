@@ -30,7 +30,7 @@ def handle_api_get(handler: Any, effective_path: str, context: ApiGetRouteContex
     if handle_node_get(handler, effective_path, context.node):
         return True
     if effective_path.startswith("/configs/"):
-        handler.send_json({"ok": False, "error": "raw OpenVPN configs are not exposed", "error_code": "sensitive_resource"}, HTTPStatus.FORBIDDEN)
+        handler.send_json({"ok": False, "error": "不允许读取 OpenVPN 原始配置。", "error_code": "sensitive_resource"}, HTTPStatus.FORBIDDEN)
         return True
     if handle_status_get(handler, effective_path, context.status):
         return True

@@ -35,8 +35,8 @@ class CiBaselineTests(unittest.TestCase):
     def test_release_acceptance_requires_external_linux_evidence(self) -> None:
         text = (ROOT / "docs" / "release-acceptance.md").read_text(encoding="utf-8")
 
-        self.assertIn("Missing, partial, or locally simulated evidence is a release blocker", text)
-        self.assertIn("Disposable Ubuntu host lifecycle", text)
+        self.assertIn("任一证据缺失、只完成部分步骤或仅由本地模拟代替，均属于发布阻断项", text)
+        self.assertIn("全新 Ubuntu 主机生命周期", text)
         self.assertIn("Secure; HttpOnly;", text)
 
 

@@ -81,6 +81,8 @@ def build_service_runtime(ctx: object) -> None:
         set_stderr=set_stderr,
         shutdown_background_threads=ctx.shutdown_background_threads,
         stop_active_openvpn=ctx.stop_active_openvpn,
+        text_log_max_bytes=lambda: ctx.text_log_max_bytes,
+        text_log_backup_count=lambda: ctx.text_log_backup_count,
     ))
 
 

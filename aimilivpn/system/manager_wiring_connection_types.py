@@ -54,6 +54,9 @@ class ConnectionRuntimeWiring:
     set_connection_phase: Callable[[ConnectionPhase | str, str, str], None]
     wait_for_stop: Callable[[float], bool] | None = None
     instance_retry_backoff_seconds: tuple[int, ...] = (60, 300, 900, 1800)
+    connection_candidate_limit: int = 3
+    mark_blacklisted: Callable[[dict[str, Any], str], None] | None = None
+    get_state: Callable[[], dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)

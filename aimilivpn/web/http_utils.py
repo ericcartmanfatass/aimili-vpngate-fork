@@ -66,16 +66,19 @@ def _parse_content_length(value: Any) -> int:
 
 
 def _normalize_json_response(data: Any, status: HTTPStatus) -> Any:
-    if not isinstance(data, dict) or "error" not in data or "error_code" in data:
+    if not isinstance(data, dict) or "error" not in data:
         return data
     normalized = dict(data)
     normalized.setdefault("ok", False)
-    if status == HTTPStatus.UNAUTHORIZED:
-        normalized["error_code"] = "unauthorized"
-    elif status == HTTPStatus.NOT_FOUND:
-        normalized["error_code"] = "not_found"
-    elif 400 <= int(status) < 500:
-        normalized["error_code"] = "invalid_request"
-    else:
-        normalized["error_code"] = "request_failed"
+    normalized.setdefault("message", str(normalized.get("error") or "请求失败"))
+    normalized.setdefault("details", {})
+    if "error_code" not in normalized:
+        if status == HTTPStatus.UNAUTHORIZED:
+            normalized["error_code"] = "unauthorized"
+        elif status == HTTPStatus.NOT_FOUND:
+            normalized["error_code"] = "not_found"
+        elif 400 <= int(status) < 500:
+            normalized["error_code"] = "invalid_request"
+        else:
+            normalized["error_code"] = "request_failed"
     return normalized

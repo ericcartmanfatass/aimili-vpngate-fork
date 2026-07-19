@@ -60,3 +60,4 @@ class JsonLogRuntimeWiring:
     data_dir: Path
     lock: object
     redact_message: Callable[[str], str]
+    retention_days: int = 7

@@ -18,6 +18,7 @@ from aimilivpn.core.storage import (
     SqliteStore,
     StorageValidationError,
     migrate_json_to_sqlite,
+    migration_summary_status,
 )
 from aimilivpn.system.manager_wiring_factories_foundation import build_repositories
 
@@ -115,10 +116,18 @@ class StorageContractTests(unittest.TestCase):
             self.assertIsNotNone(summary)
             assert summary is not None
             self.assertEqual(summary.total_count, 2)
+            self.assertEqual(summary.migrated_at, "2026-07-13T00:00:00Z")
+            self.assertEqual(summary.result, "success")
             self.assertTrue(Path(summary.backup_dir, "nodes.json").exists())
             self.assertTrue(Path(summary.backup_dir, "migration-summary.json").exists())
             self.assertEqual(NodeRepository(nodes_path, store=store).list_node_dicts()[0]["id"], "jp_1")
             self.assertTrue(all(len(item.checksum) == 64 for item in summary.documents))
+            self.assertTrue(store.health_status()["ok"])
+            persisted = SqliteStore(root / "aimilivpn.db").latest_migration_summary()
+            self.assertIsNotNone(persisted)
+            assert persisted is not None
+            self.assertEqual(persisted.total_count, summary.total_count)
+            self.assertEqual(migration_summary_status(persisted), migration_summary_status(summary))
 
     def test_sqlite_repository_bootstrap_automatically_migrates_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

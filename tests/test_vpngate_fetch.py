@@ -105,7 +105,9 @@ class VpnGateFetchFacadeTests(unittest.TestCase):
                     self.assertEqual(facade.fetch_api_text(), "direct")
 
             self.assertEqual(logs[0][0], "WARNING")
-            self.assertIn("proxy down", logs[0][1])
+            self.assertIn("使用上游 http 代理获取 API 失败", logs[0][1])
+            self.assertIn("OSError", logs[0][1])
+            self.assertNotIn("proxy down", logs[0][1])
 
     def test_fetch_candidates_parses_nodes_and_sets_success_state(self) -> None:
         states: list[dict[str, object]] = []

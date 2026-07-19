@@ -32,12 +32,14 @@ def send_api_error(
     operation: str = "request",
 ) -> None:
     if exc is not None:
-        print(f"[web audit] {operation} failed: {type(exc).__name__}", flush=True)
+        print(f"[Web 审计] 操作失败 operation={operation}；异常类型: {type(exc).__name__}", flush=True)
     handler.send_json(
         {
             "ok": False,
             "error": SAFE_ERROR_MESSAGES.get(code, SAFE_ERROR_MESSAGES["internal_error"]),
+            "message": SAFE_ERROR_MESSAGES.get(code, SAFE_ERROR_MESSAGES["internal_error"]),
             "error_code": code,
+            "details": {},
         },
         status,
     )
@@ -49,18 +51,33 @@ def send_client_error(
     message: str,
     status: HTTPStatus = HTTPStatus.BAD_REQUEST,
 ) -> None:
-    handler.send_json({"ok": False, "error": message, "error_code": code}, status)
+    handler.send_json(
+        {"ok": False, "error": message, "message": message, "error_code": code, "details": {}},
+        status,
+    )
 
 
 def send_unauthorized(handler: Any) -> None:
     handler.send_json(
-        {"ok": False, "error": SAFE_ERROR_MESSAGES["unauthorized"], "error_code": "unauthorized"},
+        {
+            "ok": False,
+            "error": SAFE_ERROR_MESSAGES["unauthorized"],
+            "message": SAFE_ERROR_MESSAGES["unauthorized"],
+            "error_code": "unauthorized",
+            "details": {},
+        },
         HTTPStatus.UNAUTHORIZED,
     )
 
 
 def send_not_found(handler: Any) -> None:
     handler.send_json(
-        {"ok": False, "error": SAFE_ERROR_MESSAGES["not_found"], "error_code": "not_found"},
+        {
+            "ok": False,
+            "error": SAFE_ERROR_MESSAGES["not_found"],
+            "message": SAFE_ERROR_MESSAGES["not_found"],
+            "error_code": "not_found",
+            "details": {},
+        },
         HTTPStatus.NOT_FOUND,
     )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Durable storage for the v1.0.2 global catalog.
+"""Durable storage for the v1.0.3 global catalog.
 
 The global scheduler has a different lifecycle from an individual instance:
 one VPNGate snapshot is shared by all instances, while quality checks and job
@@ -66,6 +66,7 @@ def _safe_quality(ip: str, result: Mapping[str, Any]) -> dict[str, Any]:
         "proxy_detected",
         "datacenter_detected",
         "provider",
+        "risk_provider",
         "source",
         "country",
         "asn",
@@ -102,6 +103,41 @@ class GlobalRepository:
         self.state_path = self.root / "task_state.json"
         self.settings_path = self.root / "global_settings.json"
         self._lock = threading.RLock()
+
+    def health_status(self) -> dict[str, Any]:
+        """Expose a compact database health summary without returning database data."""
+        if self.backend == "json":
+            return {
+                "backend": "json",
+                "ok": True,
+                "path": str(self.root),
+                "database": False,
+            }
+        try:
+            with closing(self._connect()) as conn:
+                quick_check = str(conn.execute("PRAGMA quick_check").fetchone()[0])
+                tables = {
+                    "nodes": int(conn.execute("SELECT COUNT(*) FROM global_nodes").fetchone()[0]),
+                    "quality": int(conn.execute("SELECT COUNT(*) FROM global_quality_results").fetchone()[0]),
+                    "queue": int(conn.execute("SELECT COUNT(*) FROM global_quality_queue").fetchone()[0]),
+                    "history": int(conn.execute("SELECT COUNT(*) FROM global_job_history").fetchone()[0]),
+                }
+            return {
+                "backend": "sqlite",
+                "ok": quick_check.lower() == "ok",
+                "path": str(self.db_path),
+                "database": True,
+                "quick_check": quick_check,
+                "tables": tables,
+            }
+        except (OSError, sqlite3.DatabaseError) as exc:
+            return {
+                "backend": "sqlite",
+                "ok": False,
+                "path": str(self.db_path),
+                "database": True,
+                "error_type": type(exc).__name__,
+            }
 
     def replace_nodes(self, nodes: list[dict[str, Any]], *, updated_at: float) -> None:
         clean_nodes = [_safe_node(node) for node in nodes if isinstance(node, dict) and str(node.get("id") or "").strip()]
@@ -483,6 +519,112 @@ class GlobalRepository:
                     )
                     for item in clean_items
                 ],
+            )
+
+    def restore_business_bundle(
+        self,
+        *,
+        nodes: Iterable[Mapping[str, Any]],
+        quality_results: Iterable[Mapping[str, Any]],
+        quality_metrics: Mapping[str, Any],
+        history: Iterable[Mapping[str, Any]],
+        task_state: Mapping[str, Any],
+        updated_at: float,
+    ) -> None:
+        """Replace all repository-owned restore data in one SQLite transaction."""
+        clean_nodes = [
+            _safe_node(item)
+            for item in nodes
+            if isinstance(item, Mapping) and str(item.get("id") or "").strip()
+        ]
+        clean_quality: list[tuple[str, dict[str, Any]]] = []
+        for item in quality_results:
+            if not isinstance(item, Mapping):
+                continue
+            ip = str(item.get("ip") or item.get("server_ip") or "").strip()
+            if ip:
+                clean_quality.append((ip, _safe_quality(ip, item)))
+        clean_history: list[dict[str, Any]] = []
+        for item in history:
+            if isinstance(item, Mapping):
+                clean = dict(item)
+                clean.pop("raw_response", None)
+                clean_history.append(clean)
+        clean_history = clean_history[-100:]
+
+        if self.backend == "json":
+            if clean_nodes:
+                self.replace_nodes(clean_nodes, updated_at=updated_at)
+            else:
+                self.clear_nodes(updated_at=updated_at)
+            self.replace_quality(item for _, item in clean_quality)
+            self.clear_quality_queue()
+            self.write_quality_metrics(quality_metrics)
+            self.replace_history(clean_history)
+            self.write_task_state(task_state)
+            return
+
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM global_nodes")
+            conn.executemany(
+                """
+                INSERT INTO global_nodes(node_id, server_ip, country_code, rank_no, payload, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(node.get("id")),
+                        str(node.get("server_ip") or node.get("ip") or ""),
+                        str(node.get("country_short") or node.get("country_code") or "").upper(),
+                        index,
+                        json.dumps(node, ensure_ascii=False, separators=(",", ":")),
+                        float(updated_at),
+                    )
+                    for index, node in enumerate(clean_nodes)
+                ],
+            )
+            self._set_metadata(conn, "nodes_updated_at", float(updated_at))
+            self._set_metadata(conn, "nodes_source", "restore")
+
+            conn.execute("DELETE FROM global_quality_results")
+            conn.executemany(
+                """
+                INSERT INTO global_quality_results(ip, status, checked_at, expires_at, payload)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        ip,
+                        str(result.get("status") or "unknown"),
+                        _as_float(result.get("checked_at"), time.time()),
+                        _as_float(result.get("cache_expires_at"), 0.0),
+                        json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+                    )
+                    for ip, result in clean_quality
+                ],
+            )
+            conn.execute("DELETE FROM global_quality_queue")
+            self._set_metadata(conn, "quality_metrics", dict(quality_metrics))
+
+            conn.execute("DELETE FROM global_job_history")
+            conn.executemany(
+                "INSERT INTO global_job_history(task, status, created_at, payload) VALUES(?, ?, ?, ?)",
+                [
+                    (
+                        str(item.get("task") or "vpngate"),
+                        str(item.get("status") or "unknown"),
+                        _as_float(item.get("at") or item.get("created_at"), time.time()),
+                        json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+                    )
+                    for item in clean_history
+                ],
+            )
+            conn.execute(
+                """
+                INSERT INTO global_task_state(task, payload, updated_at) VALUES('global', ?, ?)
+                ON CONFLICT(task) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+                """,
+                (json.dumps(dict(task_state), ensure_ascii=False, separators=(",", ":")), time.time()),
             )
 
     def read_task_state(self, task: str = "global") -> dict[str, Any]:

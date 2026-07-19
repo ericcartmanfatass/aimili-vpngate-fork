@@ -31,18 +31,18 @@ def service_active(service: str) -> bool:
 
 def service_action(service: str, action: str, *, instance_id: str | None = None) -> dict[str, Any]:
     if action not in {"start", "stop", "restart"}:
-        return {"ok": False, "error": "unsupported service action"}
+        return {"ok": False, "error": "不支持的服务操作"}
     if not is_managed_service(service, instance_id):
-        print("[console audit] rejected unmanaged service operation", flush=True)
-        return {"ok": False, "error": "service operation rejected"}
+        print("[Console 审计] 已拒绝非受管服务操作", flush=True)
+        return {"ok": False, "error": "已拒绝对非受管服务执行操作。"}
     try:
         res = systemctl([action, service])
         if res.returncode == 0:
             return {"ok": True, "returncode": 0}
-        print(f"[console audit] 服务操作失败，返回码 {res.returncode}", flush=True)
+        print(f"[Console 审计] 服务操作失败，返回码 {res.returncode}", flush=True)
         return {"ok": False, "error": "服务操作失败", "returncode": res.returncode}
     except Exception as exc:
-        print(f"[console audit] service operation raised {type(exc).__name__}", flush=True)
+        print(f"[Console 审计] 服务操作发生异常；异常类型: {type(exc).__name__}", flush=True)
         return {"ok": False, "error": "服务操作失败"}
 
 
@@ -65,10 +65,10 @@ def backend_request(
         raw = resp.read()
     except Exception as exc:
         print(
-            f"[console audit] backend request failed for managed instance: {type(exc).__name__}",
+            f"[Console 审计] 受管实例后端请求失败；异常类型: {type(exc).__name__}",
             flush=True,
         )
-        return {"ok": False, "status": 502, "error": "backend unavailable"}
+        return {"ok": False, "status": 502, "error": "实例后端暂不可用"}
     finally:
         conn.close()
     try:

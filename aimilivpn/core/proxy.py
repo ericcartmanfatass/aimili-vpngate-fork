@@ -42,12 +42,12 @@ def check_proxy_health(
     except Exception as exc:
         diag = diagnose_local_obstructions(proxy_port, proxy_host)
         diag_msg = diag[1] if diag else f"port {proxy_port} connection failed: {exc}"
-        return {"ok": False, "error": f"proxy service is not running ({diag_msg})"}
+        return {"ok": False, "error": f"本地代理服务未运行（技术诊断：{diag_msg}）"}
 
     if is_linux and not tun_exists(tun_dev):
         return {
             "ok": False,
-            "error": f"[ERR_ROUTE_DEV_NOT_FOUND] VPN tunnel device ({tun_dev}) is not available",
+            "error": f"VPN 隧道设备 {tun_dev} 不可用 [ERR_ROUTE_DEV_NOT_FOUND]",
         }
 
     try:
@@ -67,14 +67,14 @@ def check_proxy_health(
         except Exception:
             diag = diagnose_local_obstructions(proxy_port, proxy_host)
             if diag:
-                return {"ok": False, "error": f"exit connectivity test failed | local diagnostic: {diag[1]}"}
+                return {"ok": False, "error": f"代理出口连通性检测失败（技术诊断：{diag[1]}）"}
 
         return {
             "ok": False,
-            "error": "exit connectivity test failed (ip.sb and api.ipify.org are unreachable through the local proxy)",
+            "error": "代理出口连通性检测失败（本地代理无法访问 IP 检测服务）。",
         }
     except Exception as exc:
-        return {"ok": False, "error": f"exit connectivity test raised an exception: {exc}"}
+        return {"ok": False, "error": f"代理出口连通性检测异常：{exc}"}
 
 
 def curl_check_ip(

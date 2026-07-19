@@ -105,7 +105,7 @@ function renderQualityDetails(node, quality) {
     </div>
     <div class="quality-actions">
       <button type="button" class="quality-action-btn" data-action="recheck-quality" data-node-id="${esc(nodeId)}" ${!nodeId || isTesting ? "disabled" : ""}>
-        ${isTesting ? "Checking..." : "Recheck"}
+        ${isTesting ? "检测中……" : "重新检测"}
       </button>
       <div class="quality-action-note">${riskProvider === "scamalytics" ? "本结果包含 Scamalytics 风险数据。" : "当前显示本地检测数据；配置并连通 Scamalytics 后会补充风险数据。"}</div>
     </div>

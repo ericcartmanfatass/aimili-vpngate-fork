@@ -42,6 +42,8 @@ class ManagerServiceRuntimeTests(unittest.TestCase):
             set_stderr=Mock(name="set_stderr"),
             shutdown_background_threads=Mock(name="shutdown_background_threads"),
             stop_active_openvpn=Mock(name="stop_active_openvpn"),
+            text_log_max_bytes=Mock(name="text_log_max_bytes"),
+            text_log_backup_count=Mock(name="text_log_backup_count"),
             tee_factory=Mock(name="tee_factory"),
         )
 
@@ -62,6 +64,8 @@ class ManagerServiceRuntimeTests(unittest.TestCase):
         self.assertIs(kwargs["web_server_runtime"], runtime.web_server_runtime)
         self.assertIs(kwargs["shutdown_background_threads"], runtime.shutdown_background_threads)
         self.assertIs(kwargs["stop_active_openvpn"], runtime.stop_active_openvpn)
+        self.assertIs(kwargs["text_log_max_bytes"], runtime.text_log_max_bytes)
+        self.assertIs(kwargs["text_log_backup_count"], runtime.text_log_backup_count)
         self.assertIs(kwargs["tee_factory"], runtime.tee_factory)
 
     def test_main_delegates_to_cached_runtime(self) -> None:

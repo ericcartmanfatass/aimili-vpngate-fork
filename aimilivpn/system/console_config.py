@@ -40,10 +40,16 @@ def env_bool(name: str, default: bool = False) -> bool:
 CONFIG_DIR = Path(env_text("AIMILIVPN_CONFIG_DIR", "/etc/aimilivpn"))
 INSTALL_DIR = Path(env_text("AIMILIVPN_INSTALL_DIR", "/opt/aimilivpn"))
 AUTH_FILE = Path(env_text("AIMILIVPN_CONSOLE_AUTH", str(CONFIG_DIR / "console_auth.json")))
+INITIAL_PASSWORD_FILE = Path(
+    env_text(
+        "AIMILIVPN_CONSOLE_INITIAL_PASSWORD_FILE",
+        str(CONFIG_DIR / "console_initial_password"),
+    )
+)
 INSTANCES_FILE = Path(env_text("AIMILIVPN_INSTANCES_FILE", str(CONFIG_DIR / "instances.json")))
 CONSOLE_HOST = env_text("CONSOLE_HOST", "127.0.0.1")
 CONSOLE_PORT = env_int("CONSOLE_PORT", 8788, 1, 65535)
-MAX_REQUEST_BODY_BYTES = env_int("CONSOLE_MAX_REQUEST_BODY_BYTES", 65536, 1024, 1048576)
+MAX_REQUEST_BODY_BYTES = env_int("CONSOLE_MAX_REQUEST_BODY_BYTES", 1048576, 1024, 1048576)
 REQUEST_TIMEOUT_SECONDS = env_int("CONSOLE_REQUEST_TIMEOUT_SECONDS", 10, 1, 120)
 MAX_REQUEST_THREADS = env_int("CONSOLE_MAX_REQUEST_THREADS", 32, 4, 256)
 LOGIN_RATE_LIMIT_ATTEMPTS = env_int("CONSOLE_LOGIN_RATE_LIMIT_ATTEMPTS", 5, 1, 100)
@@ -81,6 +87,25 @@ def write_json(path: Path, data: Any) -> None:
         pass
 
 
+def write_initial_credentials(path: Path, username: str, password: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        f"用户名: {username}\n一次性密码: {password}\n"
+        "请登录后立即修改密码，并删除此文件。\n",
+        encoding="utf-8",
+    )
+    try:
+        temporary.chmod(0o600)
+    except OSError:
+        pass
+    os.replace(temporary, path)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
 def load_console_auth() -> dict[str, Any]:
     cfg = {
         "username": "admin",
@@ -105,7 +130,9 @@ def load_console_auth() -> dict[str, Any]:
     )
     changed = changed or auth_changed
     if generated_password:
-        print(f"[console] Generated one-time console password: {generated_password}", flush=True)
+        write_initial_credentials(INITIAL_PASSWORD_FILE, str(cfg.get("username") or "admin"), generated_password)
     if changed or not AUTH_FILE.exists():
         write_json(AUTH_FILE, cfg)
+    if generated_password:
+        print(f"[Console] 首次登录凭据已写入受限文件: {INITIAL_PASSWORD_FILE}", flush=True)
     return cfg

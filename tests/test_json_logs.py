@@ -37,7 +37,7 @@ class JsonLogTests(unittest.TestCase):
             self.assertEqual(entry["module"], "Main")
             self.assertEqual(entry["message"], "token=***")
 
-    def test_cleanup_deletes_logs_at_least_three_days_old(self) -> None:
+    def test_cleanup_uses_configurable_retention_days(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             logs_dir = Path(tmp)
             old_log = logs_dir / "2024-01-01.json"
@@ -46,7 +46,7 @@ class JsonLogTests(unittest.TestCase):
             recent_log.write_text("{}", encoding="utf-8")
 
             with patch("builtins.print"):
-                cleanup_json_logs(logs_dir, FakeLock(), {}, now=1_704_326_400.0)
+                cleanup_json_logs(logs_dir, FakeLock(), {}, now=1_704_326_400.0, retention_days=3)
 
             self.assertFalse(old_log.exists())
             self.assertTrue(recent_log.exists())
@@ -60,6 +60,28 @@ class JsonLogTests(unittest.TestCase):
             cleanup_json_logs(logs_dir, FakeLock(), {"last_cleanup_time": 1_704_326_000.0}, now=1_704_326_400.0)
 
             self.assertTrue(old_log.exists())
+
+    def test_writer_suppresses_duplicates_and_emits_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            logs_dir = Path(tmp)
+            writer = JsonLogWriter(
+                logs_dir=logs_dir,
+                lock=FakeLock(),
+                redact_message=lambda message: message,
+                cleanup_state={},
+                suppression_window_seconds=60,
+            )
+
+            with patch("aimilivpn.system.json_logs.time.time", side_effect=[1000.0, 1010.0, 1070.0]):
+                writer.write("WARNING", "VPN", "节点连接失败")
+                writer.write("WARNING", "VPN", "节点连接失败")
+                writer.write("WARNING", "VPN", "节点连接失败")
+
+            lines = [json.loads(line) for line in next(logs_dir.glob("*.json")).read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(lines), 3)
+            self.assertEqual(lines[1]["event_type"], "duplicate_summary")
+            self.assertEqual(lines[1]["suppressed_count"], 1)
+            self.assertEqual(lines[2]["message"], "节点连接失败")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,13 @@ def _subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.Argument
 
 
 class CliCompatibilityTests(unittest.TestCase):
+    def test_cli_uses_repository_factory_instead_of_direct_json_store(self) -> None:
+        source = CLI_DIR.joinpath("commands.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("JsonStore", source)
+        self.assertIn("build_store", source)
+        self.assertIn("RepositoryFacade", source)
+
     def test_command_hierarchy_and_order_remain_compatible(self) -> None:
         commands = _subcommands(build_parser())
 

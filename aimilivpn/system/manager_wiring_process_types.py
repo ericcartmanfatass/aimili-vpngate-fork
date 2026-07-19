@@ -47,6 +47,8 @@ class ServiceRuntimeWiring:
     set_stderr: Callable[[Any], None]
     shutdown_background_threads: Callable[[], None]
     stop_active_openvpn: Callable[[], None]
+    text_log_max_bytes: Callable[[], int]
+    text_log_backup_count: Callable[[], int]
 
 
 @dataclass(frozen=True)

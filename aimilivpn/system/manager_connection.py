@@ -58,6 +58,9 @@ class ManagerConnectionRuntime:
     set_connection_phase: Callable[[ConnectionPhase | str, str, str], None] | None = None
     wait_for_stop: Callable[[float], bool] | None = None
     instance_retry_backoff_seconds: tuple[int, ...] = (60, 300, 900, 1800)
+    connection_candidate_limit: int = 3
+    mark_blacklisted: Callable[[dict[str, Any], str], None] | None = None
+    get_state: Callable[[], dict[str, Any]] | None = None
     _connection_runtime_facade: ActiveConnectionRuntimeFacade | None = field(default=None, init=False)
     _connection_orchestrator: ConnectionOrchestrator | None = field(default=None, init=False)
 
@@ -134,6 +137,9 @@ class ManagerConnectionRuntime:
                 set_connection_phase=self.set_connection_phase,
                 wait_for_stop=self.wait_for_stop,
                 instance_retry_backoff_seconds=self.instance_retry_backoff_seconds,
+                connection_candidate_limit=self.connection_candidate_limit,
+                mark_blacklisted=self.mark_blacklisted,
+                get_state=self.get_state,
             )
         return self._connection_orchestrator
 

@@ -477,7 +477,7 @@ class WebRoutesTests(unittest.TestCase):
         self.assertTrue(handled)
         payload, status = handler.responses[-1]
         self.assertEqual(status, HTTPStatus.FORBIDDEN)
-        self.assertEqual(payload["error"], "raw OpenVPN configs are not exposed")
+        self.assertEqual(payload["error"], "不允许读取 OpenVPN 原始配置。")
 
     def test_api_get_dispatches_logs(self) -> None:
         handler = FakeHandler()

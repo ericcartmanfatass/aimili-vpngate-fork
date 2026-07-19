@@ -16,10 +16,15 @@ AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN
 v1.0.2 的全局节点调度、Scamalytics 配置和 Console 备份恢复实施记录见
 [v1.0.2 全局 Console 实施说明](docs/v1.0.2-global-console.md)。
 
+v1.0.3 的断线重试、离线前端、备份恢复安全闭环及存储/日志调整见
+[v1.0.3 发布说明](docs/v1.0.3-release-notes.md)。
+
 v1.0.2 中，VPNGate 节点由全局任务统一更新，实例只消费按国家筛选后的共享快照；
 全局质量查询按 IP 去重、使用 7 天缓存并受每日配额限制。默认全局业务存储使用
 SQLite，也可通过 `AIMILIVPN_GLOBAL_STORAGE_BACKEND=json` 临时回退到兼容 JSON。
 Console 支持配置备份和完整业务数据备份，恢复前会预览变更并自动保留回滚快照。
+Console 节点中心支持可用性、风险分数范围和数值风险排序；日志与安全页会展示最近备份/
+恢复结果以及逐实例 SQLite/JSON 健康和迁移校验摘要。
 
 ---
 
@@ -54,6 +59,10 @@ sudo bash /opt/aimilivpn/install.sh --menu
 发布维护者还必须完成 [发布验收清单](docs/release-acceptance.md)，包括 Linux
 CI、迁移/回滚演练和全新 Ubuntu 主机的安装至卸载验证。
 > 💡 **安全提示**：管理网页默认只监听 `127.0.0.1`，安装日志不会输出完整安全路径。远程访问请先按 [TLS 反向代理指南](docs/reverse-proxy.md) 配置 Nginx/Caddy，再使用 `ml web` 主动查询入口。随机路径只能降低扫描噪声，不能替代密码和 HTTPS。
+
+首次生成的随机密码不会写入日志，而是原子保存到 `0600` 的一次性凭据文件：Console 使用
+`/etc/aimilivpn/console_initial_password`，实例 Web 使用各数据目录下的
+`ui_initial_password`。读取后请立即修改密码；修改或执行 `sudo ml password reset` 会删除旧文件。
 
 ---
 

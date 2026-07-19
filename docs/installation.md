@@ -1,29 +1,21 @@
-# Verified installation and instance lifecycle
+# 安装、升级与实例生命周期
 
-AimiliVPN must be installed from the fixed repository and an immutable release
-tag or full commit. A fresh systemd installation creates and starts only the JP
-instance. Other countries remain absent until they appear with usable nodes in
-the latest VPNGate response and an authenticated administrator creates them
-through the Console lifecycle API.
+AimiliVPN 必须从固定仓库的不可变发布 Tag 或完整 commit 安装。全新 systemd 安装只创建并启动 JP 实例；其他国家/地区只有在最新 VPNGate 数据中存在可用节点后，才能由已登录管理员通过 Console 创建。
 
-## One-script installation and management
+## 一键安装与日常管理
 
-For the normal VPS flow, find a version such as `v1.0.0` on the project's
-[Releases](https://github.com/ericcartmanfatass/aimili-vpngate-fork/releases) or
-[Tags](https://github.com/ericcartmanfatass/aimili-vpngate-fork/tags) page, then
-replace `v1.0.0` below if needed and run this one line:
+从项目 [Releases](https://github.com/ericcartmanfatass/aimili-vpngate-fork/releases) 或 [Tags](https://github.com/ericcartmanfatass/aimili-vpngate-fork/tags) 页面确认版本。以下以 `v1.0.3` 为例：
 
 ```bash
-curl --fail --location "https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/v1.0.0/install.sh" --output /tmp/aimilivpn-install.sh && sudo bash /tmp/aimilivpn-install.sh --ref v1.0.0
+curl --fail --location \
+  "https://raw.githubusercontent.com/ericcartmanfatass/aimili-vpngate-fork/v1.0.3/install.sh" \
+  --output /tmp/aimilivpn-install.sh
+sudo bash /tmp/aimilivpn-install.sh --ref v1.0.3
 ```
 
-The installer obtains dependencies, checks out the fixed repository at the
-selected tag/commit, compares its own SHA-256 with the checked-out installer,
-configures systemd, starts the initial JP instance, and offers an interactive
-first-login password reset when attached to a terminal. It never selects a
-moving branch or silently installs a different version.
+安装器会安装依赖、检出指定 Tag/commit、比对安装器 SHA-256、配置 systemd，并启动初始 JP 实例。它不会选择移动分支或静默安装其他版本。
 
-The same script can manage an existing installation:
+已有安装可继续使用同一脚本管理：
 
 ```bash
 sudo bash /opt/aimilivpn/install.sh --menu
@@ -33,43 +25,20 @@ sudo bash /opt/aimilivpn/install.sh --reset-password
 sudo bash /opt/aimilivpn/install.sh --uninstall --yes
 ```
 
-For an update, select install/update in the menu and enter the new immutable
-tag or full commit. The installed entry downloads that exact version's
-installer and hands control to it; the new installer then verifies itself
-against the checked-out source before changing services.
+升级时在菜单中选择安装/升级并输入新的不可变 Tag 或完整 commit。全新安装仍只创建 JP；其他实例必须从经过认证的服务端目录创建。卸载默认保留源码和数据，永久删除数据或源码必须使用 `ml uninstall` 的独立确认参数。
 
-The menu does not bypass lifecycle safety: fresh installation still creates JP
-only, additional countries are created from the authenticated server catalog,
-and uninstall preserves source/data. Permanent data or source deletion remains
-an advanced `ml uninstall` operation with separate confirmation flags.
+## 发布包校验
 
-## v1.0.2 global Console data
-
-The v1.0.2 Console owns one VPNGate refresh task for all instances. Shared node
-data and quality task state are stored below the global data directory. SQLite is
-the normal business-data backend; for a controlled rollback or compatibility
-check, set `AIMILIVPN_GLOBAL_STORAGE_BACKEND=json` before starting the Console.
-Instances continue to use their own runtime files for OpenVPN content, locks and
-short-lived state.
-
-The Console backup menu provides a configuration backup and an optional full
-business-data backup. Full restore follows upload, validation, preview, explicit
-confirmation, automatic pre-restore backup, and rollback-on-failure. It never
-restores systemd units, TUN devices, policy tables, ports, OpenVPN configuration
-content, passwords, session tokens, or Scamalytics API keys. After restoring settings,
-the administrator must re-enter any missing sensitive credential through the
-Console.
-
-## Verify before running
-
-Release assets must publish both `aimilivpn-VERSION.tar.gz` and `SHA256SUMS`.
-Maintainers generate them from the signed/reviewed release tag with
-`bash scripts/build-release.sh vX.Y.Z`; the deterministic archive and checksum file
-are uploaded together.
-Replace `vX.Y.Z` below with a published release tag:
+正式发布必须同时提供 `aimilivpn-VERSION.tar.gz` 和 `SHA256SUMS`。维护者从已审核的发布 Tag 执行：
 
 ```bash
-VERSION=vX.Y.Z
+bash scripts/build-release.sh v1.0.3
+```
+
+使用者下载后先校验再安装：
+
+```bash
+VERSION=v1.0.3
 curl --fail --location --remote-name \
   "https://github.com/ericcartmanfatass/aimili-vpngate-fork/releases/download/${VERSION}/aimilivpn-${VERSION}.tar.gz"
 curl --fail --location --remote-name \
@@ -80,100 +49,73 @@ cd "aimilivpn-${VERSION}"
 sudo AIMILIVPN_REF="${VERSION}" bash install.sh
 ```
 
-Never execute `curl | bash` or an installer fetched from `main`. The installer
-accepts only a `vX.Y.Z` tag or full 40-character commit for remote deployment.
-It records the repository, ref, resolved commit, and installer SHA-256 in
-`/etc/aimilivpn/install-source.json` with mode 0600.
-`AIMILIVPN_LOCAL_DEV=1` is a development-only escape hatch for testing a local
-checkout; it intentionally skips release-ref verification and source metadata.
+不要执行 `curl | bash`，也不要从 `main` 直接安装。远程部署只接受 `vX.Y.Z` Tag 或 40 位完整 commit。安装来源会以 `0600` 权限记录到 `/etc/aimilivpn/install-source.json`。`AIMILIVPN_LOCAL_DEV=1` 仅用于本地开发测试，会跳过正式发布来源校验。
 
-## Initial Console access
+## 初始 Console 与实例 Web 密码
 
-The installer never writes a plaintext password into the authentication JSON or
-prints one into installation logs. After a fresh install, run the following as
-root from an interactive terminal:
+服务首次生成认证配置时，明文密码不会写入认证 JSON，也不会打印到安装日志。一次性初始凭据会原子写入仅 root/服务账户可读的 `0600` 文件：
+
+```text
+/etc/aimilivpn/console_initial_password
+/opt/aimilivpn/data/<实例>/ui_initial_password
+```
+
+启动日志只会提示文件路径，不会包含密码。管理员读取并保存凭据后应尽快修改密码；保存新密码时对应的一次性文件会被删除。也可以在交互式终端主动重置 Console 密码：
 
 ```bash
 sudo ml password reset
 ```
 
-The command generates a strong random Console password, atomically replaces the
-stored hash, restarts `aimilivpn-console.service`, and prints the new password
-exactly once to that terminal. Save it immediately, then use `ml web` to obtain
-the loopback Console URL. `ml password` reports password status without
-revealing any credential.
+该命令原子更新密码哈希、删除旧的一次性凭据文件、重启 Console，并只在当前终端显示新密码一次。`ml password` 只报告密码状态。使用 `ml web` 查询回环地址入口。
 
-## Updates and rollback
+## v1.0.3 全局 Console 与数据
 
-Re-run a verified newer release with its tag in `AIMILIVPN_REF`. The default
-update stops if the checkout is dirty or if the new commit is not a
-fast-forward. `FORCE_UPDATE=1` is an explicit recovery action: before resetting,
-the installer writes a Git bundle, working-tree patch, and status file under
-`/var/backups/aimilivpn/TIMESTAMP/`.
+v1.0.3 由一个全局任务统一更新 VPNGate 节点并服务所有实例。全局节点、质量任务和历史默认写入 SQLite；受控回退时可在启动 Console 前设置：
 
-Before an operational upgrade, also back up configuration and data:
+```bash
+export AIMILIVPN_GLOBAL_STORAGE_BACKEND=json
+```
+
+实例业务数据同样默认使用 SQLite；单实例兼容回退使用 `STORAGE_BACKEND=json`。OpenVPN 内容、锁和短生命周期状态仍保存在各实例受限目录中。
+
+Console 提供配置备份和完整业务备份。恢复流程固定为：上传、格式/版本校验、差异预览、显式确认、恢复前自动快照、失败自动回滚。包含删除项时需要第二次独立确认。备份不会包含 systemd 单元、TUN、策略路由表、端口、OpenVPN 正文、密码、Session、Token 或 Scamalytics API Key；恢复后缺失的敏感凭据必须重新录入。
+
+“日志与安全”页会显示最近备份路径、时间、校验结果与 SHA-256，最近一次恢复结果，以及每个实例的存储后端、健康状态、迁移备份目录、条数和校验摘要。页面时间按浏览器本地时区显示。
+
+## 升级与回滚
+
+使用新版本的已验证 Tag 重新运行安装器。默认升级在工作区脏或目标不是 fast-forward 时停止。`FORCE_UPDATE=1` 仅用于显式恢复；重置前会在 `/var/backups/aimilivpn/TIMESTAMP/` 写入 Git bundle、工作区补丁和状态文件。
+
+生产升级前额外备份配置与数据：
 
 ```bash
 sudo cp -a /etc/aimilivpn "/etc/aimilivpn.backup.$(date +%s)"
 sudo cp -a /opt/aimilivpn/data "/opt/aimilivpn-data.backup.$(date +%s)"
 ```
 
-Rollback by checking out the prior verified tag, restoring the backups, running
-`systemctl daemon-reload`, and restarting the Console and retained instances.
+回滚步骤：检出上一个已验证 Tag，恢复上述备份，执行 `systemctl daemon-reload`，再重启 Console 和保留实例。JSON/SQLite 的详细演练见 [`../MIGRATION.md`](../MIGRATION.md)。
 
-## Instance lifecycle API
+## 实例生命周期 API
 
-The Console listens on loopback and all lifecycle routes require a valid Console
-session. Browsers never write `/etc`, allocate ports, or generate systemd units.
+Console 只监听回环地址，所有生命周期路由都要求有效 Session。浏览器不能写 `/etc`、分配端口或生成 systemd 单元。
 
-- `GET /api/instance-catalog` lists countries found in the latest VPNGate
-  response, their usable node counts, allocated resource preview, and whether
-  each is installed.
-- `POST /api/instances/validate` with `{"country":"DE"}` validates a create.
-- `POST /api/instances` creates and starts a catalog instance atomically.
-- `GET /api/instances` and `GET /api/instances/{id}/status` query state.
-- `POST /api/instances/{id}/service` with `start`, `stop`, or `restart` controls
-  only that installer-managed unit.
-- `DELETE /api/instances/{id}` requires `{"confirmation":"id"}` and retains
-  data by default. Purging data additionally requires `retain_data:false` and
-  `purge_data_confirmation:"purge:id"`.
+- `GET /api/instance-catalog`：列出最新 VPNGate 目录中的国家/地区、可用节点数和资源预览。
+- `POST /api/instances/validate`：用 `{"country":"DE"}` 预检创建。
+- `POST /api/instances`：原子创建并启动目录中的实例。
+- `GET /api/instances`、`GET /api/instances/{id}/status`：查询实例状态。
+- `POST /api/instances/{id}/service`：仅接受 `start`、`stop`、`restart`，并只控制安装器管理的单元。
+- `DELETE /api/instances/{id}`：要求 `{"confirmation":"id"}`，默认保留数据；永久删除还需 `retain_data:false` 和 `purge_data_confirmation:"purge:id"`。
 
-Creation accepts only a current two-letter VPNGate catalog country and derives
-the canonical instance ID from it. The backend allocates a free TUN device,
-policy table, and UI/proxy ports, then validates host conflicts, environment
-paths, and duplicates. It writes mode-0600 configuration, atomically
-updates `instances.json`, runs `daemon-reload`, and uses `enable --now`. Any
-failure restores the previous catalog and removes newly-created empty resources.
-Deletion first stops and disables the service. The backend service owns policy
-route cleanup during shutdown; configuration is then removed. Data is preserved
-unless the separate purge confirmation is supplied.
+后端从当前两位国家代码派生规范实例 ID，分配空闲 TUN、策略表和 UI/代理端口，并校验主机冲突、路径和重复项。配置使用 `0600` 权限，`instances.json` 原子更新。创建失败会恢复原目录并移除新建的空资源；删除先停止并禁用服务，默认保留数据。
 
-## Generated systemd boundary
+## systemd 与网络边界
 
-`aimilivpn@.service` runs the packaged manager with only `CAP_NET_ADMIN` and
-`CAP_NET_RAW` in its bounding/ambient sets. `aimilivpn-console.service` has an
-empty capability bounding set. Both use `NoNewPrivileges`, `PrivateTmp`,
-`ProtectHome`, `ProtectSystem=strict`, `UMask=0077`, restricted address
-families/namespaces, kernel/control-group protection, and native system-call
-architecture. The backend may write only `/opt/aimilivpn/data`; the Console may
-write that data directory and `/etc/aimilivpn` for lifecycle transactions.
+`aimilivpn@.service` 仅保留 `CAP_NET_ADMIN` 和 `CAP_NET_RAW`；`aimilivpn-console.service` 的 capability bounding set 为空。两者启用 `NoNewPrivileges`、`PrivateTmp`、`ProtectHome`、`ProtectSystem=strict`、`UMask=0077`、地址族/命名空间限制和内核/控制组保护。
 
-Backend environment files are `/etc/aimilivpn/{country}.env` and are mode 0600.
-JP/US/KR retain their compatible preferred slots. Other countries use the first
-free managed slot starting at tun13/table 113/proxy 7931/UI 18791. Allocations
-are persisted in `instances.json` and never renumbered when the upstream country
-list changes. The Console environment and instance API token are also mode 0600.
+实例环境文件位于 `/etc/aimilivpn/{country}.env`，权限为 `0600`。JP/US/KR 保留兼容槽位，其他国家从 tun13/table 113/proxy 7931/UI 18791 起分配第一个空闲受管槽位；上游国家列表变化不会重编号。
 
-## Network and uninstall behavior
+安装器不修改 DNS 或 `/etc/resolv.conf`。写入 `rp_filter=2` 前会记录原始值，并备份已有 `/etc/sysctl.d/99-aimilivpn.conf`。`ml uninstall --yes` 会停止服务、清理实例策略路由、恢复或移除 AimiliVPN 管理的 sysctl 配置，默认保留数据和源码。
 
-The installer does not modify DNS or `/etc/resolv.conf`. Before applying
-`rp_filter=2`, it records the original live values in
-`/etc/aimilivpn/network-changes.json`. If an existing
-`/etc/sysctl.d/99-aimilivpn.conf` was present, it is backed up before replacement.
+## 正式发布前
 
-`ml uninstall --yes` stops/disables services, removes instance-owned policy
-tables and configuration, restores the pre-install sysctl file when available
-(otherwise removes the AimiliVPN file), reapplies sysctl settings, and finally
-restores the recorded pre-install live `rp_filter` values. Instance
-data and source are retained by default. Data/source deletion each requires its
-own explicit confirmation flags.
+Windows 本地测试不能替代 Linux CI 和全新 Ubuntu 实机验收。发布候选必须完成 [`release-acceptance.md`](release-acceptance.md) 中的全部门禁。

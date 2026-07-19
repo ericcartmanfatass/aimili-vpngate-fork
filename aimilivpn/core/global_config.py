@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Versioned v1.0.2 global configuration.
+"""Versioned v1.0.3 global configuration.
 
 The instance runtime still accepts its historical environment variables.  This
 module is the durable, user-facing configuration contract used by Console and
@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 
 GLOBAL_CONFIG_SCHEMA_VERSION = 1
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 DEFAULT_VPNGATE_API_URL = "https://www.vpngate.net/api/iphone/"
 DEFAULT_SCAMALYTICS_API_URL = "https://api11.scamalytics.com/{username}/"
 DEFAULT_VPNGATE_RETRY_BACKOFF = (300, 900, 1800, 3600)
@@ -42,6 +42,22 @@ _SENSITIVE_NAMES = {
 
 class GlobalConfigError(ValueError):
     """Raised when a global configuration payload is invalid."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "GLOBAL_CONFIG_INVALID",
+        field: str = "",
+        technical_message: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.error_code = code
+        self.details = {
+            **({"field": field} if field else {}),
+            **({"technical_message": technical_message} if technical_message else {}),
+        }
 
 
 @dataclass(frozen=True)
@@ -133,9 +149,19 @@ def _validate_url(name: str, value: Any, default: str) -> str:
     text = str(value or default).strip()
     parsed = urlsplit(text)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise GlobalConfigError(f"{name} must be an http or https URL")
+        raise GlobalConfigError(
+            f"{name} 必须是 HTTP 或 HTTPS 地址。",
+            code="GLOBAL_SETTING_INVALID_URL",
+            field=name,
+            technical_message="URL scheme or host is invalid",
+        )
     if parsed.username or parsed.password or parsed.query:
-        raise GlobalConfigError(f"{name} must not contain credentials or query secrets")
+        raise GlobalConfigError(
+            f"{name} 不能包含用户名、密码或查询参数。",
+            code="GLOBAL_SETTING_UNSAFE_URL",
+            field=name,
+            technical_message="URL contains credentials or query parameters",
+        )
     return text
 
 
@@ -145,7 +171,12 @@ def _bounded_int(name: str, value: Any, default: int, minimum: int, maximum: int
     except (TypeError, ValueError):
         parsed = default
     if not minimum <= parsed <= maximum:
-        raise GlobalConfigError(f"{name} must be between {minimum} and {maximum}")
+        raise GlobalConfigError(
+            f"{name} 必须在 {minimum} 到 {maximum} 之间。",
+            code="GLOBAL_SETTING_OUT_OF_RANGE",
+            field=name,
+            technical_message=f"expected range {minimum}..{maximum}",
+        )
     return parsed
 
 
@@ -153,7 +184,12 @@ def _bool(name: str, value: Any, default: bool) -> bool:
     if value is None:
         return default
     if not isinstance(value, bool):
-        raise GlobalConfigError(f"{name} must be boolean")
+        raise GlobalConfigError(
+            f"{name} 必须是布尔值。",
+            code="GLOBAL_SETTING_INVALID_TYPE",
+            field=name,
+            technical_message="expected boolean",
+        )
     return value
 
 
@@ -161,10 +197,20 @@ def _backoff(name: str, value: Any, default: tuple[int, ...]) -> tuple[int, ...]
     if value is None:
         return default
     if not isinstance(value, (list, tuple)) or not value or len(value) > 8:
-        raise GlobalConfigError(f"{name} must contain one to eight positive seconds")
+        raise GlobalConfigError(
+            f"{name} 必须包含 1 到 8 个正整数秒数。",
+            code="GLOBAL_SETTING_INVALID_BACKOFF",
+            field=name,
+            technical_message="expected one to eight positive seconds",
+        )
     parsed = tuple(_bounded_int(name, item, 1, 1, 86400 * 7) for item in value)
     if any(left > right for left, right in zip(parsed, parsed[1:])):
-        raise GlobalConfigError(f"{name} must be sorted ascending")
+        raise GlobalConfigError(
+            f"{name} 必须按从小到大排列。",
+            code="GLOBAL_SETTING_INVALID_BACKOFF",
+            field=name,
+            technical_message="backoff values must be sorted ascending",
+        )
     return parsed
 
 
@@ -172,14 +218,24 @@ def normalize_global_settings(payload: Mapping[str, Any] | None) -> GlobalSettin
     raw = dict(payload or {})
     schedule = str(raw.get("vpn_gate_schedule_time", "03:30")).strip()
     if not _TIME_PATTERN.fullmatch(schedule):
-        raise GlobalConfigError("vpn_gate_schedule_time must use HH:MM")
+        raise GlobalConfigError(
+            "VPNGate 每日更新时间必须使用 HH:MM 格式。",
+            code="GLOBAL_SETTING_INVALID_TIME",
+            field="vpn_gate_schedule_time",
+            technical_message="expected HH:MM",
+        )
     timezone_name = str(raw.get("vpn_gate_timezone", "local")).strip() or "local"
     if timezone_name != "local":
         if timezone_name.upper() not in {"UTC", "GMT", "ETC/UTC"}:
             try:
                 ZoneInfo(timezone_name)
             except Exception as exc:
-                raise GlobalConfigError("vpn_gate_timezone is not a supported timezone") from exc
+                raise GlobalConfigError(
+                    "VPNGate 时区无效或当前系统不支持。",
+                    code="GLOBAL_SETTING_INVALID_TIMEZONE",
+                    field="vpn_gate_timezone",
+                    technical_message="timezone is not supported",
+                ) from exc
     return GlobalSettings(
         vpn_gate_enabled=_bool("vpn_gate_enabled", raw.get("vpn_gate_enabled"), True),
         vpn_gate_schedule_time=schedule,

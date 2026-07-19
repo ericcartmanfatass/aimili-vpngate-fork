@@ -77,6 +77,9 @@ class CliParserTests(unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json.loads(stdout.getvalue())
         self.assertTrue(payload["scamalytics_configured"])
+        self.assertEqual(payload["storage"]["backend"], "sqlite")
+        self.assertIn("ok", payload["storage"])
+        self.assertIn("global_task", payload)
         self.assertNotIn("super-secret", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
 
@@ -198,7 +201,7 @@ class CliParserTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(["systemctl", "start", "aimilivpn@jp.service"], calls)
         self.assertIn(["systemctl", "start", "aimilivpn-console.service"], calls)
-        self.assertIn("已请求对 2 个服务执行 start", out)
+        self.assertIn("已请求对 2 个服务执行启动", out)
         self.assertEqual(err, "")
 
     def test_logs_uses_journalctl_for_discovered_services(self) -> None:
@@ -246,6 +249,8 @@ class CliParserTests(unittest.TestCase):
     def test_password_reset_updates_hash_and_restarts_console(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg_dir = self.write_instances(tmp)
+            initial_password = cfg_dir / "console_initial_password"
+            initial_password.write_text("old one-time password", encoding="utf-8")
             calls: list[list[str]] = []
 
             def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -260,6 +265,7 @@ class CliParserTests(unittest.TestCase):
                 extra_env={"AIMILIVPN_CONFIG_DIR": str(cfg_dir)},
             )
             auth = json.loads((cfg_dir / "console_auth.json").read_text(encoding="utf-8"))
+            self.assertFalse(initial_password.exists())
 
         password = next(line.split(": ", 1)[1] for line in out.splitlines() if line.startswith("密码: "))
         self.assertEqual(code, 0)
@@ -460,7 +466,7 @@ class CliParserTests(unittest.TestCase):
 
             self.assertEqual(code, 1)
             self.assertTrue(outside_data.exists())
-            self.assertIn("refusing to remove path outside allowed roots", err)
+        self.assertIn("拒绝删除受管目录之外的路径", err)
 
     def test_quality_latest_reports_missing_node(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

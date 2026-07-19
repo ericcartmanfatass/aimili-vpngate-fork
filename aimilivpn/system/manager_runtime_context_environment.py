@@ -37,6 +37,10 @@ CONFIG_ATTRIBUTES = (
     "global_config_dir",
     "global_nodes_file",
     "instance_retry_backoff_seconds",
+    "connection_candidate_limit",
+    "json_log_retention_days",
+    "text_log_max_bytes",
+    "text_log_backup_count",
 )
 
 PATH_ATTRIBUTES = (

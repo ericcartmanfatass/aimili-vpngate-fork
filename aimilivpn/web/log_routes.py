@@ -19,7 +19,7 @@ def handle_logs_get(handler: Any, effective_path: str, context: LogsRouteContext
             default_limit=200,
         )
     except InvalidListQuery:
-        send_client_error(handler, "invalid_query", "invalid list query")
+        send_client_error(handler, "invalid_query", "日志列表查询参数无效。")
         return True
     logs = context.read_log_entries()
     for field in ("level", "module"):

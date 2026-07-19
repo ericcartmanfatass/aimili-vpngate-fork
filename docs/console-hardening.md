@@ -22,7 +22,7 @@ The unified Console applies the following protections by default:
 The resource limits can be adjusted in `/etc/aimilivpn/console.env`:
 
 ```ini
-CONSOLE_MAX_REQUEST_BODY_BYTES=65536
+CONSOLE_MAX_REQUEST_BODY_BYTES=1048576
 CONSOLE_REQUEST_TIMEOUT_SECONDS=10
 CONSOLE_MAX_REQUEST_THREADS=32
 CONSOLE_LOGIN_RATE_LIMIT_ATTEMPTS=5

@@ -79,7 +79,7 @@ class OperationRegistry:
             try:
                 result = task()
             except Exception as exc:
-                print(f"[web audit] operation {kind} failed: {type(exc).__name__}", flush=True)
+                print(f"[Web 审计] 后台操作失败 kind={kind}；异常类型: {type(exc).__name__}", flush=True)
                 self._complete(record.id, status="failed", error_code=f"{kind}_failed")
                 return
             self._complete(record.id, status="succeeded", result=result)

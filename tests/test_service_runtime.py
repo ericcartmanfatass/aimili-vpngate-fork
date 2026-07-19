@@ -48,7 +48,13 @@ class ServiceRuntimeTests(unittest.TestCase):
             set_stderr=lambda stream: calls.__setitem__("stderr", stream),
             shutdown_background_threads=lambda: calls.__setitem__("threads_shutdown", True),
             stop_active_openvpn=lambda: calls.__setitem__("connection_stopped", True),
-            tee_factory=lambda path: calls.setdefault("tee_paths", []).append(path) or object(),
+            text_log_max_bytes=lambda: 12345,
+            text_log_backup_count=lambda: 4,
+            tee_factory=lambda path, **options: (
+                calls.setdefault("tee_paths", []).append(path),
+                calls.setdefault("tee_options", []).append(options),
+                object(),
+            )[-1],
         )
 
     def test_main_initializes_state_threads_and_web_server(self) -> None:
@@ -62,6 +68,7 @@ class ServiceRuntimeTests(unittest.TestCase):
         self.assertTrue(calls["ensured"])
         self.assertTrue(calls["killed"])
         self.assertEqual(calls["tee_paths"], [str(tmp / "vpngate.log")])
+        self.assertEqual(calls["tee_options"], [{"max_bytes": 12345, "backup_count": 4}])
         self.assertIs(calls["stdout"], calls["stderr"])
         state_path, state = calls["state"]
         self.assertEqual(state_path, tmp / "state.json")

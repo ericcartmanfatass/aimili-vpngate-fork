@@ -55,9 +55,13 @@ class UiConfigStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = build_store(Path(tmp))
 
-            with patch("builtins.print"):
+            with patch("builtins.print") as print_mock:
                 config = store.load()
 
+            printed = " ".join(str(arg) for call in print_mock.call_args_list for arg in call.args)
+            self.assertNotIn("GeneratedPassword123", printed)
+            self.assertIn(str(store.initial_password_file), printed)
+            self.assertIn("GeneratedPassword123", store.initial_password_file.read_text(encoding="utf-8"))
             self.assertEqual(config["username"], "AdminUser1")
             self.assertTrue(verify_password("GeneratedPassword123", config["password_hash"]))
             self.assertNotIn("password", config)
@@ -102,10 +106,12 @@ class UiConfigStoreTests(unittest.TestCase):
     def test_save_migrates_plaintext_password(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = build_store(Path(tmp))
+            store.initial_password_file.write_text("temporary secret", encoding="utf-8")
 
             store.save({"username": "admin", "password": "secret"})
 
             saved = json.loads(store.auth_file.read_text(encoding="utf-8"))
+            self.assertFalse(store.initial_password_file.exists())
             self.assertNotIn("password", saved)
             self.assertTrue(verify_password("secret", saved["password_hash"]))
 

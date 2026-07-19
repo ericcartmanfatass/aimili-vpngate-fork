@@ -85,7 +85,7 @@ def main() -> None:
     auth = load_console_auth()
     host = str(auth.get("host") or CONSOLE_HOST)
     port = int(auth.get("port") or CONSOLE_PORT)
-    print(f"AimiliVPN console listening on {host}:{port}; secret path hidden", flush=True)
+    print(f"AimiliVPN Console 已监听 {host}:{port}；安全路径已隐藏", flush=True)
     print(
         management_http_notice(
             "Console",

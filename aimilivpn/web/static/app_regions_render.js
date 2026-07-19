@@ -39,7 +39,7 @@ function renderRegionsList() {
         </div>
         <div class="region-codes">${codes}</div>
         <div class="region-actions">
-          <button type="button" class="test-btn" data-action="check-region" data-region-id="${esc(region.id)}" ${isChecking ? "disabled" : ""}>${isChecking ? "Checking..." : "Check"}</button>
+          <button type="button" class="test-btn" data-action="check-region" data-region-id="${esc(region.id)}" ${isChecking ? "disabled" : ""}>${isChecking ? "检测中……" : "检测"}</button>
           <button type="button" class="test-btn" data-action="edit-region" data-region-id="${esc(region.id)}">编辑</button>
           <button type="button" class="test-btn" data-action="preview-region" data-region-id="${esc(region.id)}">预览</button>
           <button type="button" class="connect-btn" data-action="select-region" data-region-id="${esc(region.id)}">筛选</button>

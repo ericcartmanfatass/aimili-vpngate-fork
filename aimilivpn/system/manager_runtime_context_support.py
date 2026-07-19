@@ -67,6 +67,7 @@ def build_json_log_runtime(ctx: object) -> None:
         data_dir=ctx.data_dir,
         lock=ctx.lock,
         redact_message=redact_log_message,
+        retention_days=ctx.json_log_retention_days,
     ))
     ctx.json_log_writer = ctx.json_log_runtime.writer
     ctx.cleanup_old_logs = ctx.json_log_runtime.cleanup_old_logs

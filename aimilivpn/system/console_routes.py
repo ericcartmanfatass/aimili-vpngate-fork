@@ -6,12 +6,14 @@ import socket
 import threading
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 from aimilivpn.core.auth import generate_session_token, verify_password, verify_username
-from aimilivpn.core.global_config import APP_VERSION
+from aimilivpn.core.global_backup import BackupRestoreError, BackupValidationError
+from aimilivpn.core.global_config import APP_VERSION, GlobalConfigError
 from aimilivpn.system.console_backend import backend_request, service_action, service_active, systemctl
 from aimilivpn.system.console_config import (
     CONFIG_DIR,
@@ -98,7 +100,7 @@ def sync_auth_session_state(auth: dict[str, Any]) -> None:
     with sessions_lock:
         if _auth_fingerprint is not None and _auth_fingerprint != fingerprint:
             sessions.clear()
-            print("[console audit] authentication configuration changed; sessions revoked", flush=True)
+            print("[Console 审计] 身份验证配置已变更，现有会话已撤销", flush=True)
         _auth_fingerprint = fingerprint
 
 
@@ -124,6 +126,17 @@ def instance_state(inst: dict[str, Any]) -> dict[str, Any]:
 
 def stripped_nodes(inst: dict[str, Any]) -> dict[str, Any]:
     return build_stripped_nodes(inst, state_factory=instance_state)
+
+
+def api_error(error_code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return the stable Console error contract without exposing internal exceptions."""
+    return {
+        "ok": False,
+        "error": message,
+        "message": message,
+        "error_code": error_code,
+        "details": details or {},
+    }
 
 
 class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
@@ -165,7 +178,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         try:
             self.send_json(data, status)
         except OSError as exc:
-            print(f"[console audit] response write failed: {type(exc).__name__}", flush=True)
+            print(f"[Console 审计] 响应写入失败；异常类型: {type(exc).__name__}", flush=True)
 
     def session_token(self) -> str:
         return parse_cookie_header(self.headers.get("Cookie", "")).get("console_session", "")
@@ -195,8 +208,8 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         try:
             self._handle_get()
         except Exception as exc:
-            print(f"[console audit] GET request failed: {type(exc).__name__}", flush=True)
-            self.safe_error_json({"error": "服务器内部错误"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"[Console 审计] GET 请求处理失败；异常类型: {type(exc).__name__}", flush=True)
+            self.safe_error_json(api_error("internal_server_error", "服务器内部错误"), HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _handle_get(self) -> None:
         path = self.effective_path()
@@ -206,7 +219,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 self.send_bytes(get_console_login_html(LOGIN_HTML).encode("utf-8"), "text/html; charset=utf-8")
             else:
-                self.send_json({"error": "未授权"}, HTTPStatus.UNAUTHORIZED)
+                self.send_json(api_error("unauthorized", "未授权"), HTTPStatus.UNAUTHORIZED)
             return
         if path in ("/", "/index.html"):
             self.send_bytes(get_console_index_html(INDEX_HTML).encode("utf-8"), "text/html; charset=utf-8")
@@ -215,10 +228,10 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             try:
                 asset = get_static_asset(asset_path)
             except ValueError:
-                self.send_json({"error": "静态资源路径无效"}, HTTPStatus.BAD_REQUEST)
+                self.send_json(api_error("invalid_static_path", "静态资源路径无效"), HTTPStatus.BAD_REQUEST)
                 return
             if asset is None:
-                self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+                self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
                 return
             self.send_bytes(asset, guess_content_type(asset_path))
         elif path == "/api/instances":
@@ -240,7 +253,11 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="aimilivpn-v{APP_VERSION}-{backup_type}.json"')
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="aimilivpn-v{APP_VERSION}-{backup_type}-{stamp}.json"',
+            )
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -248,11 +265,11 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         elif path.startswith("/api/instances/"):
             parts = path.strip("/").split("/")
             if len(parts) < 3:
-                self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+                self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
                 return
             inst = instance_by_id(parts[2])
             if not inst:
-                self.send_json({"error": "未找到实例"}, HTTPStatus.NOT_FOUND)
+                self.send_json(api_error("instance_not_found", "未找到实例"), HTTPStatus.NOT_FOUND)
                 return
             action = parts[3] if len(parts) > 3 else "status"
             if action == "status":
@@ -264,22 +281,58 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             elif action == "gateway_status":
                 self.send_json(backend_request(inst, "/api/gateway_status"))
             else:
-                self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+                self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
         else:
-            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+            self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
         try:
             self._handle_post()
+        except BackupRestoreError as exc:
+            self.safe_error_json(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "message": str(exc),
+                    "error_code": exc.error_code,
+                    "details": {
+                        "rollback_succeeded": exc.rollback_succeeded,
+                        "cause_type": exc.cause_type,
+                    },
+                },
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+        except BackupValidationError as exc:
+            self.safe_error_json(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "message": str(exc),
+                    "error_code": "backup_validation_failed",
+                    "details": {"technical_message": "backup validation rejected the request"},
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+        except GlobalConfigError as exc:
+            self.safe_error_json(
+                {
+                    "ok": False,
+                    "error": exc.message,
+                    "message": exc.message,
+                    "error_code": exc.error_code,
+                    "details": exc.details,
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
         except RequestBodyTooLarge:
-            self.safe_error_json({"error": "请求内容过大"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            self.safe_error_json(api_error("request_too_large", "请求内容过大"), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
         except (InvalidRequestBody, json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            self.safe_error_json({"error": "请求内容无效"}, HTTPStatus.BAD_REQUEST)
+            self.safe_error_json(api_error("invalid_request_body", "请求内容无效"), HTTPStatus.BAD_REQUEST)
         except (socket.timeout, TimeoutError):
-            self.safe_error_json({"error": "请求超时"}, HTTPStatus.REQUEST_TIMEOUT)
+            self.safe_error_json(api_error("request_timeout", "请求超时"), HTTPStatus.REQUEST_TIMEOUT)
         except Exception as exc:
-            print(f"[console audit] POST request failed: {type(exc).__name__}", flush=True)
-            self.safe_error_json({"error": "服务器内部错误"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"[Console 审计] POST 请求处理失败；异常类型: {type(exc).__name__}", flush=True)
+            self.safe_error_json(api_error("internal_server_error", "服务器内部错误"), HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _handle_post(self) -> None:
         path = self.effective_path()
@@ -288,8 +341,8 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         if path == "/api/login":
             client_ip = self.client_ip()
             if not login_limiter.allow(client_ip):
-                print("[console audit] login rate limit exceeded", flush=True)
-                self.send_json({"ok": False, "error": "登录失败"}, HTTPStatus.TOO_MANY_REQUESTS)
+                print("[Console 审计] 登录尝试已超过速率限制", flush=True)
+                self.send_json(api_error("login_failed", "登录失败"), HTTPStatus.TOO_MANY_REQUESTS)
                 return
             payload = self.body_json()
             try:
@@ -300,7 +353,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
                     str(payload.get("password") or ""), str(auth.get("password_hash") or "")
                 )
             except Exception as exc:
-                print(f"[console audit] login verification failed: {type(exc).__name__}", flush=True)
+                print(f"[Console 审计] 登录验证失败；异常类型: {type(exc).__name__}", flush=True)
                 valid = False
             if valid:
                 login_limiter.reset(client_ip)
@@ -319,7 +372,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             else:
-                self.send_json({"ok": False, "error": "登录失败"}, HTTPStatus.FORBIDDEN)
+                self.send_json(api_error("login_failed", "登录失败"), HTTPStatus.FORBIDDEN)
             return
         if path == "/api/logout":
             token = self.session_token()
@@ -335,9 +388,9 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             self.end_headers()
             return
         if not self.authorized():
-            self.send_json({"error": "未授权"}, HTTPStatus.UNAUTHORIZED)
+            self.send_json(api_error("unauthorized", "未授权"), HTTPStatus.UNAUTHORIZED)
             return
-        print(f"[console audit] mutation path={path} client={self.client_ip()}", flush=True)
+        print(f"[Console 审计] 收到变更请求 path={path} client={self.client_ip()}", flush=True)
         if path == "/api/global/settings":
             payload = self.body_json()
             self.send_json({"ok": True, "settings": global_console_runtime().save_settings(payload)})
@@ -353,17 +406,19 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             payload = self.body_json()
             candidate = payload.get("backup", payload)
             if not isinstance(candidate, dict):
-                raise ValueError("backup must be an object")
+                raise ValueError("备份内容必须是 JSON 对象")
             self.send_json({"ok": True, "preview": global_console_runtime().preview_restore(candidate)})
             return
         if path == "/api/global/backup/restore":
             payload = self.body_json()
             candidate = payload.get("backup")
             if not isinstance(candidate, dict):
-                raise ValueError("backup must be an object")
+                raise ValueError("备份内容必须是 JSON 对象")
             result = global_console_runtime().restore(
                 candidate,
                 confirmed=bool(payload.get("confirmed", False)),
+                confirm_deletions=bool(payload.get("confirm_deletions", False)),
+                sync_instances=instance_lifecycle.reconcile,
             )
             self.send_json(result)
             return
@@ -384,20 +439,20 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
                     self.send_json({"ok": True, "instance": created}, HTTPStatus.CREATED)
             except LifecycleError as exc:
                 self.send_json(
-                    {"ok": False, "error": exc.message, "error_code": exc.code},
+                    {"ok": False, "error": exc.message, "message": exc.message, "error_code": exc.code, "details": exc.details},
                     HTTPStatus(exc.status),
                 )
             return
         if not path.startswith("/api/instances/"):
-            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+            self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
             return
         parts = path.strip("/").split("/")
         if len(parts) < 4:
-            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+            self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
             return
         inst = instance_by_id(parts[2])
         if not inst:
-            self.send_json({"error": "未找到实例"}, HTTPStatus.NOT_FOUND)
+            self.send_json(api_error("instance_not_found", "未找到实例"), HTTPStatus.NOT_FOUND)
             return
         action = parts[3]
         payload = self.body_json()
@@ -408,36 +463,36 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
         elif action in {"connect", "disconnect", "refresh_nodes", "test_proxy", "test_node"}:
             self.send_json(backend_request(inst, f"/api/{action}", method="POST", payload=payload))
         else:
-            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+            self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
 
     def do_DELETE(self) -> None:
         try:
             self._handle_delete()
         except RequestBodyTooLarge:
-            self.safe_error_json({"error": "请求内容过大"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            self.safe_error_json(api_error("request_too_large", "请求内容过大"), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
         except (InvalidRequestBody, json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            self.safe_error_json({"error": "请求内容无效"}, HTTPStatus.BAD_REQUEST)
+            self.safe_error_json(api_error("invalid_request_body", "请求内容无效"), HTTPStatus.BAD_REQUEST)
         except Exception as exc:
-            print(f"[console audit] DELETE request failed: {type(exc).__name__}", flush=True)
-            self.safe_error_json({"error": "服务器内部错误"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"[Console 审计] DELETE 请求处理失败；异常类型: {type(exc).__name__}", flush=True)
+            self.safe_error_json(api_error("internal_server_error", "服务器内部错误"), HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _handle_delete(self) -> None:
         path = self.effective_path()
         if not path:
             return
         if not self.authorized():
-            self.send_json({"error": "未授权"}, HTTPStatus.UNAUTHORIZED)
+            self.send_json(api_error("unauthorized", "未授权"), HTTPStatus.UNAUTHORIZED)
             return
         parts = path.strip("/").split("/")
         if len(parts) != 3 or parts[:2] != ["api", "instances"]:
-            self.send_json({"error": "未找到"}, HTTPStatus.NOT_FOUND)
+            self.send_json(api_error("not_found", "未找到"), HTTPStatus.NOT_FOUND)
             return
         payload = self.body_json()
         instance_id = parts[2]
         retain_data = payload.get("retain_data", True)
         if not isinstance(retain_data, bool):
             raise InvalidRequestBody("retain_data must be boolean")
-        print(f"[console audit] mutation path=/api/instances/<id> client={self.client_ip()}", flush=True)
+        print(f"[Console 审计] 收到实例删除请求 path=/api/instances/<id> client={self.client_ip()}", flush=True)
         try:
             result = instance_lifecycle.delete(
                 instance_id,
@@ -447,7 +502,7 @@ class Handler(HttpResponseMixin, BaseHTTPRequestHandler):
             )
         except LifecycleError as exc:
             self.send_json(
-                {"ok": False, "error": exc.message, "error_code": exc.code},
+                {"ok": False, "error": exc.message, "message": exc.message, "error_code": exc.code, "details": exc.details},
                 HTTPStatus(exc.status),
             )
             return

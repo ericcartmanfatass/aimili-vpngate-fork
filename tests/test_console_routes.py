@@ -87,6 +87,10 @@ class ConsoleRouteSecurityTests(unittest.TestCase):
                 handler.do_POST()
                 self.assertEqual(handler.response_status, expected)
                 self.assertNotIn(str(error).encode(), handler.wfile.getvalue())
+                payload = json.loads(handler.wfile.getvalue())
+                self.assertEqual(payload["message"], payload["error"])
+                self.assertIsInstance(payload["error_code"], str)
+                self.assertIsInstance(payload["details"], dict)
 
     def test_handler_setup_applies_request_timeout(self) -> None:
         handler = object.__new__(console_routes.Handler)
@@ -110,6 +114,10 @@ class ConsoleRouteSecurityTests(unittest.TestCase):
         self.assertEqual(handler.response_status, HTTPStatus.FORBIDDEN)
         self.assertNotIn(b"sensitive detail", handler.wfile.getvalue())
         self.assertIn("登录失败".encode("utf-8"), handler.wfile.getvalue())
+        payload = json.loads(handler.wfile.getvalue())
+        self.assertEqual(payload["error_code"], "login_failed")
+        self.assertEqual(payload["message"], "登录失败")
+        self.assertEqual(payload["details"], {})
 
     def test_rate_limited_login_uses_generic_failure(self) -> None:
         handler = build_login_handler(secure=False)
@@ -118,6 +126,26 @@ class ConsoleRouteSecurityTests(unittest.TestCase):
 
         self.assertEqual(handler.response_status, HTTPStatus.TOO_MANY_REQUESTS)
         self.assertIn("登录失败".encode("utf-8"), handler.wfile.getvalue())
+        self.assertEqual(json.loads(handler.wfile.getvalue())["error_code"], "login_failed")
+
+    def test_generic_console_errors_use_stable_contract(self) -> None:
+        cases = (
+            ("/api/global/settings", False, HTTPStatus.UNAUTHORIZED, "unauthorized"),
+            ("/api/not-a-route", True, HTTPStatus.NOT_FOUND, "not_found"),
+        )
+        for path, authorized, expected_status, expected_code in cases:
+            with self.subTest(path=path):
+                handler = build_login_handler(secure=False)
+                handler.effective_path = MethodType(lambda self, value=path: value, handler)  # type: ignore[method-assign]
+                handler.authorized = MethodType(lambda self, value=authorized: value, handler)  # type: ignore[method-assign]
+                handler.client_ip = MethodType(lambda self: "127.0.0.1", handler)  # type: ignore[method-assign]
+                handler.do_POST()
+
+                payload = json.loads(handler.wfile.getvalue())
+                self.assertEqual(handler.response_status, expected_status)
+                self.assertEqual(payload["error_code"], expected_code)
+                self.assertEqual(payload["message"], payload["error"])
+                self.assertEqual(payload["details"], {})
 
     def test_logout_removes_server_side_session(self) -> None:
         handler = build_login_handler(secure=False)
@@ -167,6 +195,29 @@ class ConsoleRouteSecurityTests(unittest.TestCase):
         self.assertEqual(post_handler.response_status, HTTPStatus.CREATED)
         self.assertEqual(json.loads(post_handler.wfile.getvalue())["instance"]["id"], "us")
         lifecycle.create.assert_called_once_with("US", "")
+
+    def test_lifecycle_error_uses_stable_code_chinese_message_and_details(self) -> None:
+        lifecycle = Mock()
+        lifecycle.create.side_effect = console_routes.LifecycleError(
+            "resource_conflict",
+            "主机资源与现有配置冲突。",
+            409,
+            details={"resources": ["ui_port"]},
+        )
+        handler = build_login_handler(secure=False)
+        handler.effective_path = MethodType(lambda self: "/api/instances", handler)  # type: ignore[method-assign]
+        handler.authorized = MethodType(lambda self: True, handler)  # type: ignore[method-assign]
+        handler.client_ip = MethodType(lambda self: "127.0.0.1", handler)  # type: ignore[method-assign]
+        handler.body_json = MethodType(lambda self: {"country": "US"}, handler)  # type: ignore[method-assign]
+
+        with patch.object(console_routes, "instance_lifecycle", lifecycle):
+            handler.do_POST()
+
+        payload = json.loads(handler.wfile.getvalue())
+        self.assertEqual(handler.response_status, HTTPStatus.CONFLICT)
+        self.assertEqual(payload["error_code"], "resource_conflict")
+        self.assertEqual(payload["message"], "主机资源与现有配置冲突。")
+        self.assertEqual(payload["details"]["resources"], ["ui_port"])
 
     def test_authenticated_instance_delete_requires_backend_confirmation(self) -> None:
         lifecycle = Mock()

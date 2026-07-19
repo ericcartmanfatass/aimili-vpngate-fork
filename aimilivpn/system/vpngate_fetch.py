@@ -57,7 +57,7 @@ class VpnGateFetchFacade:
         if proxy_type and proxy_host and proxy_port:
             try:
                 print(
-                    f"[fetch_api_text] 监测到上游代理 ({proxy_type}://{proxy_host}:{proxy_port})，尝试通过代理获取 API...",
+                    f"[VPNGate 抓取] 检测到上游 {proxy_type} 代理，尝试通过代理获取 API…",
                     flush=True,
                 )
                 return self.fetch_api_text_via_proxy(
@@ -69,10 +69,10 @@ class VpnGateFetchFacade:
                 )
             except Exception as exc:
                 print(
-                    f"[fetch_api_text] 通过代理获取 API 失败: {exc}，尝试使用直连/默认系统代理...",
+                    f"[VPNGate 抓取] 通过代理获取 API 失败，尝试使用直连；异常类型: {type(exc).__name__}",
                     flush=True,
                 )
-                self.log_line("WARNING", f"使用代理 {proxy_type}://{proxy_host}:{proxy_port} 获取 API 失败: {exc}")
+                self.log_line("WARNING", f"使用上游 {proxy_type} 代理获取 API 失败；异常类型: {type(exc).__name__}")
 
         request = urllib.request.Request(
             url,
@@ -98,10 +98,10 @@ class VpnGateFetchFacade:
         attempts_targets = [(self.api_url, True)]
         if self.allow_insecure_fetch:
             print(
-                "[fetch_candidates] WARNING: ALLOW_INSECURE_FETCH is enabled; insecure VPNGate fallbacks may be used.",
+                "[候选节点抓取] 已启用 ALLOW_INSECURE_FETCH，可能使用不安全的 VPNGate 回退连接。",
                 flush=True,
             )
-            self.log_line("WARNING", "ALLOW_INSECURE_FETCH is enabled; insecure VPNGate fallbacks may be used.")
+            self.log_line("WARNING", "已启用 ALLOW_INSECURE_FETCH，可能使用不安全的 VPNGate 回退连接。")
             attempts_targets.append((self.api_url, False))
         if self.allow_insecure_fetch and self.api_url.startswith("https://"):
             attempts_targets.append((self.api_url.replace("https://", "http://"), True))
@@ -114,8 +114,8 @@ class VpnGateFetchFacade:
                 if attempt > 0:
                     self.sleep(1.5)
                 try:
-                    message = f"尝试拉取 {url} (SSL验证: {verify_ssl}, 第 {attempt + 1} 次尝试)..."
-                    print(f"[fetch_candidates] {message}", flush=True)
+                    message = f"尝试拉取 VPNGate API（TLS 验证: {verify_ssl}，第 {attempt + 1} 次尝试）…"
+                    print(f"[候选节点抓取] {message}", flush=True)
                     self.log_line("INFO", message)
                     api_text = self.fetch_api_text(url, verify_ssl)
                     self._write_country_catalog(api_text)
@@ -131,14 +131,17 @@ class VpnGateFetchFacade:
                         safe_name_func=self.safe_name,
                     )
                     for warning in warnings:
-                        print(f"[fetch_candidates] Skipping invalid VPNGate row: {warning}", flush=True)
-                        self.log_line("WARNING", f"Skipping invalid VPNGate row: {warning}")
+                        print(f"[候选节点抓取] 已跳过无效的 VPNGate 数据行；技术详情: {warning}", flush=True)
+                        self.log_line("WARNING", f"已跳过无效的 VPNGate 数据行；技术详情: {warning}")
                     candidates.extend(parsed_nodes)
                     if candidates:
                         break
                 except Exception as exc:
                     last_error = exc
-                    print(f"[fetch_candidates] 拉取失败 (URL: {url}, 验证: {verify_ssl}): {exc}", flush=True)
+                    print(
+                        f"[候选节点抓取] 拉取失败；TLS 验证: {verify_ssl}；异常类型: {type(exc).__name__}",
+                        flush=True,
+                    )
                     self.log_line("WARNING", f"拉取失败 (URL: {url}, 验证: {verify_ssl}): {exc}")
             if candidates:
                 break

@@ -123,6 +123,22 @@ def run_drill(root: Path) -> dict[str, object]:
         if file_sha256(data_dir / name) != expected:
             raise RuntimeError(f"rollback checksum mismatch: {name}")
 
+    # A rollback must leave JSON as a valid source for a subsequent upgrade,
+    # rather than only proving that the first SQLite import worked.
+    reupgrade_store = SqliteStore(data_dir / "aimilivpn-reupgrade.db")
+    reupgrade_summary = migrate_json_to_sqlite(
+        {nodes_file: "nodes", settings_file: "settings"},
+        reupgrade_store,
+    )
+    if reupgrade_summary is None or reupgrade_summary.total_count != summary.total_count:
+        raise RuntimeError("JSON to SQLite re-upgrade did not preserve document counts")
+    if NodeRepository(nodes_file, store=reupgrade_store).list_node_dicts()[0]["id"] != "jp_legacy":
+        raise RuntimeError("re-upgraded node data could not be read")
+    if SettingsRepository(settings_file, store=reupgrade_store).get("proxy_port") != 7928:
+        raise RuntimeError("re-upgraded settings could not be read")
+    if sorted(item.checksum for item in reupgrade_summary.documents) != sorted(item.checksum for item in summary.documents):
+        raise RuntimeError("re-upgrade checksums do not match the original import")
+
     return {
         "status": "passed",
         "auth_plaintext_removed": True,
@@ -130,6 +146,7 @@ def run_drill(root: Path) -> dict[str, object]:
         "migrated_items": summary.total_count,
         "backup_summary": summary_file.name,
         "rollback_checksums_verified": sorted(original_checksums),
+        "reupgrade_checksums_verified": True,
     }
 
 
